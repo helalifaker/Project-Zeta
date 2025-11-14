@@ -133,9 +133,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   } catch (error) {
     console.error('Failed to list versions:', error);
+    
+    // Handle database errors
+    const { handleDatabaseError } = await import('@/lib/utils/error-handler');
+    const dbError = handleDatabaseError(error);
+    
+    // Return appropriate status code
+    const statusCode = !dbError.success && (dbError.code === 'DATABASE_TIMEOUT' || dbError.code === 'DATABASE_CONNECTION_ERROR')
+      ? 503 
+      : 500;
+    
     return NextResponse.json(
-      { success: false, error: 'Internal server error', code: 'INTERNAL_ERROR' },
-      { status: 500 }
+      { success: false, error: dbError.success ? 'Internal server error' : dbError.error, code: dbError.success ? 'INTERNAL_ERROR' : dbError.code },
+      { status: statusCode }
     );
   }
 }
@@ -162,12 +172,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const validation = CreateVersionSchema.safeParse(body);
 
     if (!validation.success) {
+      // Format validation errors for better user experience
+      const { getValidationErrorMessage } = await import('@/lib/utils/error-handler');
+      const formattedErrors: Record<string, string[]> = {};
+      
+      validation.error.errors.forEach((issue) => {
+        const path = issue.path.join('.');
+        if (!formattedErrors[path]) {
+          formattedErrors[path] = [];
+        }
+        formattedErrors[path].push(getValidationErrorMessage(path, issue));
+      });
+      
       return NextResponse.json(
         {
           success: false,
-          error: 'Validation failed',
+          error: 'Validation failed. Please check your input and try again.',
           code: 'VALIDATION_ERROR',
-          details: validation.error.flatten(),
+          details: formattedErrors,
         },
         { status: 400 }
       );
@@ -282,23 +304,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (error) {
     console.error('Failed to create version:', error);
 
-    // Handle Prisma unique constraint error
-    if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      if (error.code === 'P2002') {
-        return NextResponse.json(
-          {
-            success: false,
-            error: 'Version with this name already exists',
-            code: 'DUPLICATE_ERROR',
-          },
-          { status: 409 }
-        );
+    // Handle database errors
+    const { handleDatabaseError } = await import('@/lib/utils/error-handler');
+    const dbError = handleDatabaseError(error);
+    
+    // Return appropriate status code
+    let statusCode = 500;
+    if (!dbError.success) {
+      if (dbError.code === 'DUPLICATE_ERROR') {
+        statusCode = 409;
+      } else if (dbError.code === 'DATABASE_TIMEOUT' || dbError.code === 'DATABASE_CONNECTION_ERROR') {
+        statusCode = 503;
       }
     }
 
     return NextResponse.json(
-      { success: false, error: 'Internal server error', code: 'INTERNAL_ERROR' },
-      { status: 500 }
+      { success: false, error: dbError.success ? 'Internal server error' : dbError.error, code: dbError.success ? 'INTERNAL_ERROR' : dbError.code },
+      { status: statusCode }
     );
   }
 }

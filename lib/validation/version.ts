@@ -21,6 +21,7 @@ export const UpdateVersionSchema = z.object({
   name: z.string().min(3).max(100).optional(),
   description: z.string().max(500).optional(),
   status: z.nativeEnum(VersionStatus).optional(),
+  expectedUpdatedAt: z.string().datetime().optional(), // For optimistic locking
 });
 
 export const DuplicateVersionSchema = z.object({

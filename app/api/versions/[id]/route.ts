@@ -110,9 +110,19 @@ export async function GET(
     );
   } catch (error) {
     console.error('Failed to get version:', error);
+    
+    // Handle database errors
+    const { handleDatabaseError } = await import('@/lib/utils/error-handler');
+    const dbError = handleDatabaseError(error);
+    
+    // Return appropriate status code
+    const statusCode = !dbError.success && (dbError.code === 'DATABASE_TIMEOUT' || dbError.code === 'DATABASE_CONNECTION_ERROR')
+      ? 503 
+      : 500;
+    
     return NextResponse.json(
-      { success: false, error: 'Internal server error', code: 'INTERNAL_ERROR' },
-      { status: 500 }
+      { success: false, error: dbError.success ? 'Internal server error' : dbError.error, code: dbError.success ? 'INTERNAL_ERROR' : dbError.code },
+      { status: statusCode }
     );
   }
 }
@@ -155,6 +165,7 @@ export async function PATCH(
         status: true,
         createdBy: true,
         name: true,
+        updatedAt: true,
       },
     });
 
@@ -188,14 +199,49 @@ export async function PATCH(
     // Parse and validate request body
     const body = await request.json();
     const validation = UpdateVersionSchema.safeParse(body);
+    
+    // Optimistic locking: Check if version was modified by another user
+    if (body.expectedUpdatedAt) {
+      const expectedUpdatedAt = new Date(body.expectedUpdatedAt);
+      const actualUpdatedAt = existingVersion.updatedAt;
+      
+      // Allow 1 second tolerance for clock skew
+      const timeDiff = Math.abs(actualUpdatedAt.getTime() - expectedUpdatedAt.getTime());
+      if (timeDiff > 1000) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Version was modified by another user. Please refresh and try again.',
+            code: 'CONCURRENT_MODIFICATION',
+            details: {
+              expectedUpdatedAt: expectedUpdatedAt.toISOString(),
+              actualUpdatedAt: actualUpdatedAt.toISOString(),
+            },
+          },
+          { status: 409 }
+        );
+      }
+    }
 
     if (!validation.success) {
+      // Format validation errors for better user experience
+      const { getValidationErrorMessage } = await import('@/lib/utils/error-handler');
+      const formattedErrors: Record<string, string[]> = {};
+      
+      validation.error.errors.forEach((issue) => {
+        const path = issue.path.join('.');
+        if (!formattedErrors[path]) {
+          formattedErrors[path] = [];
+        }
+        formattedErrors[path].push(getValidationErrorMessage(path, issue));
+      });
+      
       return NextResponse.json(
         {
           success: false,
-          error: 'Validation failed',
+          error: 'Validation failed. Please check your input and try again.',
           code: 'VALIDATION_ERROR',
-          details: validation.error.flatten(),
+          details: formattedErrors,
         },
         { status: 400 }
       );
@@ -265,9 +311,24 @@ export async function PATCH(
     });
   } catch (error) {
     console.error('Failed to update version:', error);
+    
+    // Handle database errors
+    const { handleDatabaseError } = await import('@/lib/utils/error-handler');
+    const dbError = handleDatabaseError(error);
+    
+    // Return appropriate status code
+    let statusCode = 500;
+    if (!dbError.success) {
+      if (dbError.code === 'DUPLICATE_ERROR') {
+        statusCode = 409;
+      } else if (dbError.code === 'DATABASE_TIMEOUT' || dbError.code === 'DATABASE_CONNECTION_ERROR') {
+        statusCode = 503;
+      }
+    }
+    
     return NextResponse.json(
-      { success: false, error: 'Internal server error', code: 'INTERNAL_ERROR' },
-      { status: 500 }
+      { success: false, error: dbError.success ? 'Internal server error' : dbError.error, code: dbError.success ? 'INTERNAL_ERROR' : dbError.code },
+      { status: statusCode }
     );
   }
 }
@@ -353,9 +414,19 @@ export async function DELETE(
     });
   } catch (error) {
     console.error('Failed to delete version:', error);
+    
+    // Handle database errors
+    const { handleDatabaseError } = await import('@/lib/utils/error-handler');
+    const dbError = handleDatabaseError(error);
+    
+    // Return appropriate status code
+    const statusCode = !dbError.success && (dbError.code === 'DATABASE_TIMEOUT' || dbError.code === 'DATABASE_CONNECTION_ERROR')
+      ? 503 
+      : 500;
+    
     return NextResponse.json(
-      { success: false, error: 'Internal server error', code: 'INTERNAL_ERROR' },
-      { status: 500 }
+      { success: false, error: dbError.success ? 'Internal server error' : dbError.error, code: dbError.success ? 'INTERNAL_ERROR' : dbError.code },
+      { status: statusCode }
     );
   }
 }

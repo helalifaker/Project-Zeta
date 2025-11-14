@@ -719,7 +719,7 @@ curl -X POST "http://localhost:3000/api/versions/compare" \
 
 ### 9. Generate Report
 
-**Endpoint:** `POST /api/reports/{versionId}`
+**Endpoint:** `POST /api/reports/generate/{versionId}`
 
 **Description:** Generate PDF or Excel report for a version
 
@@ -754,7 +754,7 @@ curl -X POST "http://localhost:3000/api/versions/compare" \
 **Request Example:**
 
 ```bash
-curl -X POST "http://localhost:3000/api/reports/660e8400-e29b-41d4-a716-446655440001" \
+curl -X POST "http://localhost:3000/api/reports/generate/660e8400-e29b-41d4-a716-446655440001" \
   -H "Content-Type: application/json" \
   -H "Cookie: next-auth.session-token=..." \
   -d '{"reportType":"EXECUTIVE_SUMMARY","format":"PDF","includeCharts":true}'
@@ -1337,7 +1337,7 @@ curl -X GET "http://localhost:3000/api/auth/session" \
 | `GET /api/versions/{id}` | <300ms | p95 response time |
 | `POST /api/versions` | <500ms | p95 response time |
 | `GET /api/versions/{id}?includeCalculations=true` | <1000ms | p95 (includes 30-year calculation) |
-| `POST /api/reports/{versionId}` | <5000ms | p95 (PDF generation) |
+| `POST /api/reports/generate/{versionId}` | <5000ms | p95 (PDF generation) |
 | `POST /api/versions/compare` | <800ms | p95 (compare 3 versions) |
 
 ---
