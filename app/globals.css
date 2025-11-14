@@ -1,0 +1,130 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Focus styles for all interactive elements */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-primary ring-offset-2 ring-offset-background;
+  }
+
+  /* Remove default focus styles for mouse users, keep for keyboard */
+  *:focus:not(:focus-visible) {
+    @apply outline-none;
+  }
+
+  /* Ensure all interactive elements are focusable */
+  button:not(:disabled),
+  a[href],
+  input:not(:disabled),
+  select:not(:disabled),
+  textarea:not(:disabled),
+  [tabindex]:not([tabindex="-1"]) {
+    @apply focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2;
+  }
+}
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 3.9%;
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 0 0% 96.1%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 45.1%;
+    --accent: 0 0% 96.1%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 89.8%;
+    --input: 0 0% 89.8%;
+    --ring: 0 0% 3.9%;
+    --radius: 0.5rem;
+    --chart-1: 12 76% 61%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+  }
+  .dark {
+    /* Dark Mode Primary - Project Zeta Design System */
+    --background: 220 40% 7%; /* #0A0E1A - primary */
+    --foreground: 210 40% 98%; /* #F8FAFC - text primary */
+    --card: 220 30% 12%; /* #141825 - secondary */
+    --card-foreground: 210 40% 98%;
+    --popover: 220 30% 12%; /* #141825 */
+    --popover-foreground: 210 40% 98%;
+    --primary: 217 91% 60%; /* #3B82F6 - accent blue */
+    --primary-foreground: 210 40% 98%;
+    --secondary: 220 25% 18%; /* #1E2332 - tertiary */
+    --secondary-foreground: 210 40% 98%;
+    --muted: 220 25% 18%; /* #1E2332 */
+    --muted-foreground: 215 20% 65%; /* #94A3B8 - text secondary */
+    --accent: 220 25% 18%; /* #1E2332 */
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 84% 60%; /* #EF4444 - accent red */
+    --destructive-foreground: 210 40% 98%;
+    --border: 220 25% 18%; /* #1E2332 */
+    --input: 220 25% 18%; /* #1E2332 */
+    --ring: 217 91% 60%; /* #3B82F6 - accent blue for focus */
+    --chart-1: 217 91% 60%; /* Revenue - Blue */
+    --chart-2: 270 70% 70%; /* Rent - Purple */
+    --chart-3: 160 70% 50%; /* EBITDA - Green */
+    --chart-4: 180 70% 55%; /* Cashflow - Teal */
+    --chart-5: 25 90% 55%; /* Rent Load - Orange */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-text;
+  }
+}
+
+/* Custom scrollbar for dark mode */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background-color: hsl(220 30% 12%); /* background-secondary */
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: hsl(220 25% 18%); /* background-tertiary */
+  border-radius: 0.375rem;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(215 20% 65%); /* text-tertiary */
+}
+
+/* Focus styles for accessibility */
+*:focus-visible {
+  @apply outline-none ring-2 ring-accent-blue ring-offset-2 ring-offset-background;
+}
+
+/* Smooth animations */
+* {
+  @apply transition-colors duration-200;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+

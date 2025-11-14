@@ -1,0 +1,1420 @@
+# Project Zeta - Financial Planning Application
+# Core Development Rules for Cursor AI
+
+## Project Context
+This is a world-class financial planning application for school relocation assessment (2028+).
+Primary focus: Long-term lease evaluation with multiple rent models (FixedEscalation, RevenueShare, PartnerModel).
+Timeline: 30-year projections (2023-2052) with critical focus on 2028-2052 (25-year NPV period).
+
+**CRITICAL BUSINESS RULES - NEVER VIOLATE:**
+1. Rent is the PRIMARY decision variable (most important component)
+2. Tuition and Rent are INDEPENDENT (no automatic calculation linking them)
+3. Revenue = Tuition × Students (automatic calculation with CPI-based growth)
+4. Curriculum-specific capacity ramp-up: FR (established, starts 70-80%) vs IB (new, starts 0-20%)
+5. NPV calculations focus on 2028-2052 (25-year post-relocation period)
+6. All financial amounts in SAR (Saudi Riyal) - use integers (halalas) or Decimal.js
+
+---
+
+## Tech Stack (Exact Versions)
+
+### Core Framework
+- **Next.js 15** (App Router) with React Server Components
+- **TypeScript 5.3+** (strict mode enabled)
+- **Node.js 20 LTS**
+
+### Database & ORM
+- **PostgreSQL 15+** (via Supabase)
+- **Prisma 5.x** (with pgBouncer connection pooling)
+- **Connection Strings Required:**
+  - `DATABASE_URL` (pgBouncer with `?pgbouncer=true&sslmode=require`)
+  - `DIRECT_URL` (direct connection for migrations with `?sslmode=require`)
+
+### UI & Styling
+- **Tailwind CSS v3** (stable, compatible with shadcn/ui)
+- **shadcn/ui** (component library)
+- **Framer Motion** (animations)
+- **Recharts** (chart-first design)
+
+### State Management & Computation
+- **Zustand** (global state)
+- **React Context** (in-memory simulation state)
+- **Web Workers** (heavy financial calculations)
+
+### Deployment
+- **Vercel** (production hosting)
+- **Supabase** (database hosting)
+
+---
+
+## 1. Project Initialization Protocol
+
+Before writing ANY code, verify/create:
+
+- [x] **PRD.md** - Product Requirements Document (complete)
+- [ ] **ARCHITECTURE.md** - System design, data flow, component hierarchy
+- [ ] **API.md** - All endpoints, request/response formats, error codes
+- [ ] **SCHEMA.md** - Complete database schema with relationships
+- [ ] **.env.local.example** - All required environment variables documented
+- [ ] **README.md** - Setup instructions, tech stack, quick start
+- [ ] **DEPLOYMENT.md** - Step-by-step deployment process
+- [ ] **RUNBOOK.md** - Common issues, troubleshooting, maintenance
+
+**Pre-Code Checklist:**
+- [ ] Business context understood from PRD
+- [ ] Data model matches PRD Section 7 (Database Schema)
+- [ ] API contract defined for all features
+- [ ] Environment variables documented
+- [ ] MVP scope identified (Phase 1 from PRD Section 12)
+
+---
+
+## 2. Code Quality Standards
+
+### TypeScript Configuration (MANDATORY)
+
+```json
+{
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "noImplicitAny": true,
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler"
+  }
+}
+```
+
+### Error Prevention Rules (ZERO TOLERANCE)
+
+1. **NEVER use `any` type** - use `unknown` with type guards
+2. **Every function MUST have explicit return types**
+3. **All API calls MUST have try-catch blocks**
+4. **Use Zod for runtime type validation** (external data, user inputs)
+5. **All database queries MUST use parameterized statements**
+6. **No floating point for money** - use integers (halalas) or Decimal.js
+7. **All async functions MUST handle errors explicitly**
+
+---
+
+## 3. File Organization Structure
+
+```
+/project-zeta
+├── /src
+│   ├── /app                    # Next.js App Router
+│   │   ├── /dashboard          # Main dashboard page
+│   │   ├── /versions           # Version management
+│   │   ├── /tuition-simulator  # Tuition & enrollment planning
+│   │   ├── /simulation         # Full financial sandbox
+│   │   ├── /compare            # Version comparison
+│   │   ├── /reports            # Report generation
+│   │   ├── /settings           # Admin settings
+│   │   └── /api                # API routes
+│   ├── /components             # Reusable UI components
+│   │   ├── /ui                 # shadcn/ui components
+│   │   ├── /charts             # Chart components (Recharts/Tremor)
+│   │   ├── /forms              # Form components
+│   │   └── /layouts            # Layout components
+│   ├── /lib                    # Core utilities & shared logic
+│   │   ├── /calculations       # Financial calculation engine
+│   │   ├── /db                 # Database client & helpers
+│   │   ├── /validation         # Zod schemas
+│   │   └── /utils              # Helper functions
+│   ├── /services               # Business logic layer
+│   │   ├── /version            # Version CRUD operations
+│   │   ├── /curriculum         # Curriculum logic
+│   │   ├── /rent               # Rent model calculations
+│   │   ├── /financial          # EBITDA, Cash Flow, NPV
+│   │   └── /audit              # Audit logging
+│   ├── /workers                # Web Workers for heavy computation
+│   │   └── /financial-engine.worker.ts
+│   ├── /hooks                  # Custom React hooks
+│   │   ├── /useFinancialCalc   # Financial calculations hook
+│   │   ├── /useVersions        # Version management hook
+│   │   └── /useSimulation      # Simulation state hook
+│   ├── /types                  # TypeScript type definitions
+│   │   ├── /database.ts        # Prisma-generated types
+│   │   ├── /financial.ts       # Financial calculation types
+│   │   └── /api.ts             # API request/response types
+│   └── /config                 # Configuration files
+│       ├── /constants.ts       # App-wide constants
+│       └── /design-system.ts   # Design tokens
+├── /prisma
+│   ├── schema.prisma           # Database schema (PRD Section 7)
+│   ├── /migrations             # Migration files
+│   └── seed.ts                 # Seed data
+├── /public                     # Static assets
+├── .env.local                  # Local environment variables
+├── .env.local.example          # Environment variable template
+├── .cursorrules                # This file
+└── PRD.md                      # Product Requirements Document
+```
+
+---
+
+## 4. Mandatory Code Patterns
+
+### 4.1 Error Handling (Result Pattern)
+
+**ALWAYS use typed Result pattern - NEVER throw in business logic:**
+
+```typescript
+type Result<T> = 
+  | { success: true; data: T }
+  | { success: false; error: string; code?: string };
+
+// Example: API Route
+export async function POST(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    const validation = VersionSchema.safeParse(body);
+    
+    if (!validation.success) {
+      return Response.json(
+        { success: false, error: 'Invalid input', code: 'VALIDATION_ERROR' },
+        { status: 400 }
+      );
+    }
+    
+    const result = await createVersion(validation.data);
+    
+    if (!result.success) {
+      return Response.json(result, { status: 500 });
+    }
+    
+    return Response.json(result, { status: 201 });
+  } catch (error) {
+    console.error('Unexpected error in POST /api/versions:', error);
+    return Response.json(
+      { success: false, error: 'Internal server error', code: 'INTERNAL_ERROR' },
+      { status: 500 }
+    );
+  }
+}
+
+// Example: Service Function
+async function createVersion(data: VersionInput): Promise<Result<Version>> {
+  try {
+    const version = await prisma.version.create({
+      data: {
+        name: data.name,
+        status: 'DRAFT',
+        // ... other fields
+      },
+    });
+    
+    // Audit log (mandatory for all mutations)
+    await logAudit({
+      action: 'CREATE_VERSION',
+      entityType: 'VERSION',
+      entityId: version.id,
+      userId: data.userId,
+      metadata: { versionName: version.name },
+    });
+    
+    return { success: true, data: version };
+  } catch (error) {
+    console.error('Failed to create version:', error);
+    return { success: false, error: 'Failed to create version' };
+  }
+}
+```
+
+### 4.2 Financial Calculations (Money Handling)
+
+**NEVER use floating point for money - ALWAYS use Decimal.js:**
+
+```typescript
+import Decimal from 'decimal.js';
+
+// Configure Decimal.js for financial precision
+Decimal.set({ precision: 20, rounding: Decimal.ROUND_HALF_UP });
+
+// Example: Revenue calculation
+function calculateRevenue(
+  tuition: Decimal,
+  students: number
+): Decimal {
+  return tuition.times(students);
+}
+
+// Example: NPV calculation (2028-2052, 25-year period)
+function calculateNPV(
+  cashFlows: Decimal[],
+  discountRate: Decimal,
+  startYear: number = 2028
+): Decimal {
+  return cashFlows.reduce((npv, cf, index) => {
+    const year = startYear + index;
+    const yearsFromBase = year - 2027; // 2028 = year 1, 2029 = year 2, etc.
+    const discountFactor = Decimal.pow(
+      Decimal.add(1, discountRate),
+      yearsFromBase
+    );
+    return npv.plus(cf.div(discountFactor));
+  }, new Decimal(0));
+}
+
+// CRITICAL: Always validate financial inputs
+const RentSchema = z.object({
+  amount: z.number().positive().finite(),
+  currency: z.literal('SAR'),
+  year: z.number().int().min(2023).max(2052),
+});
+```
+
+### 4.3 Database Operations (Prisma)
+
+**ALWAYS use transactions for multi-step operations:**
+
+```typescript
+import { prisma } from '@/lib/db';
+
+async function createVersionWithCurriculum(
+  versionData: VersionInput,
+  curriculumData: CurriculumInput[]
+): Promise<Result<Version>> {
+  try {
+    const version = await prisma.$transaction(async (tx) => {
+      // 1. Create version
+      const newVersion = await tx.version.create({
+        data: {
+          name: versionData.name,
+          status: 'DRAFT',
+          createdBy: versionData.userId,
+        },
+      });
+      
+      // 2. Create curriculum plans
+      await tx.curriculumPlan.createMany({
+        data: curriculumData.map((curr) => ({
+          versionId: newVersion.id,
+          curriculumType: curr.type,
+          capacity: curr.capacity,
+          // ... other fields
+        })),
+      });
+      
+      // 3. Audit log
+      await tx.auditLog.create({
+        data: {
+          action: 'CREATE_VERSION_WITH_CURRICULUM',
+          userId: versionData.userId,
+          metadata: { versionId: newVersion.id },
+        },
+      });
+      
+      return newVersion;
+    });
+    
+    return { success: true, data: version };
+  } catch (error) {
+    console.error('Transaction failed:', error);
+    return { success: false, error: 'Failed to create version' };
+  }
+}
+
+// CRITICAL: Always use parameterized queries
+async function getVersionsByUser(userId: string): Promise<Result<Version[]>> {
+  try {
+    const versions = await prisma.version.findMany({
+      where: { createdBy: userId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return { success: true, data: versions };
+  } catch (error) {
+    console.error('Failed to fetch versions:', error);
+    return { success: false, error: 'Failed to fetch versions' };
+  }
+}
+```
+
+### 4.4 Input Validation (Zod)
+
+**ALWAYS validate external data at the boundary:**
+
+```typescript
+import { z } from 'zod';
+
+// Example: Version creation schema
+export const CreateVersionSchema = z.object({
+  name: z.string().min(3).max(100),
+  description: z.string().max(500).optional(),
+  mode: z.enum(['RELOCATION_2028', 'HISTORICAL_BASELINE']),
+  basedOnId: z.string().uuid().optional(),
+  // Curriculum plans
+  curriculumPlans: z.array(
+    z.object({
+      curriculumType: z.enum(['FR', 'IB']),
+      capacity: z.number().int().positive(),
+      tuitionBase: z.number().positive(),
+      cpiFrequency: z.enum(['1', '2', '3']),
+      // Students enrollment (year-by-year)
+      studentsProjection: z.array(
+        z.object({
+          year: z.number().int().min(2023).max(2052),
+          students: z.number().int().nonnegative(),
+        })
+      ),
+    })
+  ).length(2), // Always FR + IB
+  // Rent plan
+  rentPlan: z.object({
+    rentModel: z.enum(['FIXED_ESCALATION', 'REVENUE_SHARE', 'PARTNER_MODEL']),
+    // Model-specific parameters
+    fixedEscalation: z.number().min(0).max(1).optional(),
+    revenueSharePercent: z.number().min(0).max(1).optional(),
+    partnerYield: z.number().min(0).max(1).optional(),
+    // ... other fields
+  }),
+});
+
+// Usage in API route
+export async function POST(req: Request) {
+  const body = await req.json();
+  const validation = CreateVersionSchema.safeParse(body);
+  
+  if (!validation.success) {
+    return Response.json(
+      {
+        success: false,
+        error: 'Validation failed',
+        details: validation.error.flatten(),
+      },
+      { status: 400 }
+    );
+  }
+  
+  // Safe to use validation.data
+  const result = await createVersion(validation.data);
+  // ...
+}
+```
+
+---
+
+## 5. Financial Application Specific Rules
+
+### 5.1 Critical Business Logic
+
+**Rent-Tuition Independence (STRICTLY ENFORCED):**
+```typescript
+// ✅ CORRECT: Tuition and rent are independent
+function calculateFinancials(params: {
+  tuitionBase: Decimal;
+  students: number[];
+  cpiRate: Decimal;
+  cpiFrequency: 1 | 2 | 3;
+  rentPlan: RentPlan;
+}): FinancialProjection {
+  // 1. Calculate tuition growth (independent of rent)
+  const tuitionByYear = calculateTuitionGrowth(
+    params.tuitionBase,
+    params.cpiRate,
+    params.cpiFrequency,
+    30 // 2023-2052
+  );
+  
+  // 2. Calculate revenue (automatic: tuition × students)
+  const revenueByYear = tuitionByYear.map((tuition, i) => 
+    tuition.times(params.students[i])
+  );
+  
+  // 3. Calculate rent (independent of tuition/revenue, except RevenueShare model)
+  const rentByYear = calculateRent(params.rentPlan, revenueByYear);
+  
+  // 4. Calculate financial metrics
+  return {
+    tuition: tuitionByYear,
+    revenue: revenueByYear,
+    rent: rentByYear,
+    rentLoad: revenueByYear.map((rev, i) => rentByYear[i].div(rev).times(100)),
+    // ... other metrics
+  };
+}
+
+// ❌ WRONG: DO NOT create "required tuition" calculation based on rent
+// This violates the core business rule
+function calculateRequiredTuition(targetEBITDA: Decimal, rent: Decimal): Decimal {
+  // NEVER IMPLEMENT THIS
+  throw new Error('Tuition must be set independently by user');
+}
+```
+
+**Curriculum-Specific Ramp-Up:**
+```typescript
+// ✅ CORRECT: Different ramp-up profiles per curriculum
+interface CurriculumRampUp {
+  curriculumType: 'FR' | 'IB';
+  capacity: number;
+  studentsProjection: {
+    year: number;
+    students: number;
+    utilizationPercent: number; // (students / capacity) × 100
+  }[];
+}
+
+function validateRampUp(rampUp: CurriculumRampUp): Result<void> {
+  // French (FR): Established school
+  if (rampUp.curriculumType === 'FR') {
+    const year2028 = rampUp.studentsProjection.find(p => p.year === 2028);
+    if (year2028 && year2028.utilizationPercent < 60) {
+      return {
+        success: false,
+        error: 'FR curriculum should start at 60-80% capacity (established school)',
+      };
+    }
+  }
+  
+  // IB: New program
+  if (rampUp.curriculumType === 'IB') {
+    const year2028 = rampUp.studentsProjection.find(p => p.year === 2028);
+    if (year2028 && year2028.utilizationPercent > 30) {
+      console.warn('IB curriculum starting high (>30%) - verify this is intentional');
+    }
+  }
+  
+  // After 2032: Must be 100% capacity
+  const post2032 = rampUp.studentsProjection.filter(p => p.year >= 2033);
+  const notFullCapacity = post2032.filter(p => 
+    Math.abs(p.students - rampUp.capacity) > 1 // Allow 1 student tolerance
+  );
+  
+  if (notFullCapacity.length > 0) {
+    return {
+      success: false,
+      error: `Years ${notFullCapacity.map(p => p.year).join(', ')} must be at full capacity (${rampUp.capacity} students)`,
+    };
+  }
+  
+  return { success: true, data: undefined };
+}
+```
+
+### 5.2 Audit Logging (MANDATORY)
+
+**Every financial mutation MUST be audited:**
+
+```typescript
+interface AuditLogEntry {
+  id: string;
+  action: string; // e.g., 'CREATE_VERSION', 'UPDATE_TUITION', 'LOCK_VERSION'
+  userId: string;
+  entityType: 'VERSION' | 'CURRICULUM' | 'RENT' | 'CAPEX' | 'OPEX';
+  entityId: string;
+  timestamp: Date;
+  metadata: Record<string, unknown>; // JSONB field for flexible data
+  ipAddress?: string;
+  userAgent?: string;
+}
+
+async function logAudit(entry: Omit<AuditLogEntry, 'id' | 'timestamp'>): Promise<void> {
+  await prisma.auditLog.create({
+    data: {
+      action: entry.action,
+      userId: entry.userId,
+      entityType: entry.entityType,
+      entityId: entry.entityId,
+      metadata: entry.metadata,
+      ipAddress: entry.ipAddress,
+      userAgent: entry.userAgent,
+    },
+  });
+}
+
+// Example usage:
+async function updateTuition(
+  versionId: string,
+  curriculumType: 'FR' | 'IB',
+  newTuition: Decimal,
+  userId: string
+): Promise<Result<void>> {
+  const oldTuition = await getCurrentTuition(versionId, curriculumType);
+  
+  await prisma.curriculumPlan.update({
+    where: { versionId_curriculumType: { versionId, curriculumType } },
+    data: { tuitionBase: newTuition.toNumber() },
+  });
+  
+  // MANDATORY: Audit log
+  await logAudit({
+    action: 'UPDATE_TUITION',
+    userId,
+    entityType: 'CURRICULUM',
+    entityId: versionId,
+    metadata: {
+      curriculumType,
+      oldTuition: oldTuition.toString(),
+      newTuition: newTuition.toString(),
+    },
+  });
+  
+  return { success: true, data: undefined };
+}
+```
+
+### 5.3 Performance Requirements
+
+**Target: Sub-50ms calculations, Sub-2s page loads**
+
+```typescript
+// Use Web Workers for heavy calculations
+// /src/workers/financial-engine.worker.ts
+import Decimal from 'decimal.js';
+
+interface CalculationRequest {
+  type: 'FULL_PROJECTION';
+  params: FinancialParameters;
+}
+
+self.onmessage = (event: MessageEvent<CalculationRequest>) => {
+  const { type, params } = event.data;
+  
+  if (type === 'FULL_PROJECTION') {
+    const startTime = performance.now();
+    const result = calculateFullProjection(params);
+    const duration = performance.now() - startTime;
+    
+    console.log(`Calculation completed in ${duration.toFixed(2)}ms`);
+    
+    if (duration > 50) {
+      console.warn('⚠️ Calculation exceeded 50ms target');
+    }
+    
+    self.postMessage({ success: true, data: result, duration });
+  }
+};
+
+// Usage in React component
+import { useEffect, useState } from 'react';
+
+function useFinancialCalculation(params: FinancialParameters) {
+  const [result, setResult] = useState<FinancialProjection | null>(null);
+  const [loading, setLoading] = useState(false);
+  
+  useEffect(() => {
+    const worker = new Worker(
+      new URL('@/workers/financial-engine.worker.ts', import.meta.url)
+    );
+    
+    setLoading(true);
+    worker.postMessage({ type: 'FULL_PROJECTION', params });
+    
+    worker.onmessage = (event) => {
+      setResult(event.data.data);
+      setLoading(false);
+    };
+    
+    return () => worker.terminate();
+  }, [params]);
+  
+  return { result, loading };
+}
+```
+
+---
+
+## 6. Before Committing Code (MANDATORY CHECKLIST)
+
+Run this checklist EVERY TIME before commit:
+
+```bash
+# 1. Type Check
+npm run type-check
+# ✅ Must pass with 0 errors
+
+# 2. Lint
+npm run lint
+# ✅ Must pass with 0 errors, 0 warnings
+
+# 3. Tests (when implemented)
+npm run test
+# ✅ Must pass all tests
+
+# 4. Build
+npm run build
+# ✅ Must build successfully
+
+# 5. Manual Verification
+# ✅ No console.logs in production code (except error logging)
+# ✅ No hardcoded credentials or API keys
+# ✅ All environment variables documented in .env.local.example
+# ✅ All functions have JSDoc comments with @param and @returns
+# ✅ User-facing error messages are friendly (no technical jargon)
+# ✅ All financial mutations have audit logs
+# ✅ All money calculations use Decimal.js (no floating point)
+```
+
+**Pre-Commit Git Hook (setup recommended):**
+```bash
+# .husky/pre-commit
+#!/bin/sh
+npm run type-check && npm run lint && npm run test
+```
+
+---
+
+## 7. Cursor AI Instructions
+
+### For Creating New Features
+
+**Prompt Template:**
+```
+"Create a [feature name] that:
+1. Follows the Result<T> error handling pattern from .cursorrules
+2. Uses Decimal.js for all financial calculations
+3. Includes input validation with Zod
+4. Has audit logging for all mutations
+5. Includes JSDoc documentation with examples
+6. Follows the file structure in /src/[appropriate directory]
+7. Respects the critical business rules:
+   - Rent and tuition are independent
+   - Revenue = Tuition × Students (automatic)
+   - Curriculum-specific ramp-up (FR vs IB)
+   - NPV period is 2028-2052 (25 years)
+8. Achieves <50ms calculation performance (use Web Workers if needed)
+9. Includes TypeScript types with explicit return types
+
+Example usage and test cases should be provided."
+```
+
+### For Bug Fixes
+
+**Prompt Template:**
+```
+"Fix [issue] by:
+1. Identifying root cause with TypeScript type safety
+2. Adding Zod validation to prevent recurrence
+3. Ensuring all error paths return Result<T> type
+4. Checking for missing audit logs
+5. Verifying financial calculations use Decimal.js
+6. Adding console.error for unexpected errors (with context)
+7. Updating relevant JSDoc documentation
+
+Verify the fix respects critical business rules from .cursorrules."
+```
+
+### For Refactoring
+
+**Prompt Template:**
+```
+"Refactor [code section] to:
+1. Improve type safety (eliminate 'any', add explicit types)
+2. Extract repeated logic into reusable functions
+3. Follow the project's file organization structure
+4. Maintain or improve performance (<50ms calculations)
+5. Ensure all mutations still have audit logs
+6. Keep all financial calculations using Decimal.js
+7. Add or improve JSDoc comments
+8. Maintain backward compatibility (or document breaking changes)
+
+Ensure refactor doesn't violate critical business rules."
+```
+
+---
+
+## 8. Database-Specific Rules (Prisma + Supabase)
+
+### 8.1 Connection Setup (CRITICAL)
+
+**ALWAYS ensure both connection strings in .env.local:**
+
+```bash
+# .env.local
+# pgBouncer connection (for application queries)
+DATABASE_URL="postgresql://[user]:[password]@[host]/[db]?pgbouncer=true&sslmode=require"
+
+# Direct connection (for migrations and introspection)
+DIRECT_URL="postgresql://[user]:[password]@[host]/[db]?sslmode=require"
+```
+
+**Before running migrations:**
+```bash
+# ✅ ALWAYS cd into project directory first
+cd /Users/fakerhelali/Desktop/Project\ Zeta
+
+# ✅ Verify connection strings are set
+echo $DATABASE_URL
+echo $DIRECT_URL
+
+# ✅ Run migration
+npx prisma migrate dev --name [migration_name]
+
+# ✅ Generate client
+npx prisma generate
+
+# ✅ Seed database (if needed)
+npx prisma db seed
+```
+
+### 8.2 Schema Design Rules
+
+**ALWAYS follow these constraints:**
+
+```prisma
+// Example: Version table with constraints
+model Version {
+  id          String   @id @default(uuid())
+  name        String   // NOT NULL by default
+  status      Status   @default(DRAFT) // NOT NULL with default
+  createdBy   String   // NOT NULL
+  createdAt   DateTime @default(now()) // NOT NULL with default
+  
+  // Constraints
+  @@unique([name, createdBy]) // Prevent duplicate version names per user
+  @@index([createdBy]) // Index for fast queries
+  @@index([status, createdAt]) // Composite index for filtering
+}
+
+// ALWAYS use enums for fixed values
+enum Status {
+  DRAFT
+  READY
+  APPROVED
+  LOCKED
+}
+
+enum CurriculumType {
+  FR
+  IB
+}
+
+enum RentModel {
+  FIXED_ESCALATION
+  REVENUE_SHARE
+  PARTNER_MODEL
+}
+```
+
+---
+
+## 9. Daily Workflow
+
+**Morning Routine:**
+```bash
+# 1. Pull latest changes
+git pull origin main
+
+# 2. Review changes
+git log --oneline -10
+
+# 3. Install new dependencies (if any)
+npm install
+
+# 4. Run database migrations (if any)
+npx prisma migrate dev
+
+# 5. Run all tests
+npm run test
+
+# 6. Check for type errors
+npm run type-check
+```
+
+**Before Coding:**
+1. Read relevant PRD sections
+2. Check ARCHITECTURE.md for design patterns
+3. Review existing similar features for consistency
+4. Identify dependencies and potential blockers
+
+**While Coding:**
+1. Commit small, logical chunks (atomic commits)
+2. Write clear commit messages:
+   ```
+   feat(rent): add PartnerModel calculation
+   fix(tuition): prevent negative tuition values
+   refactor(db): extract audit log helper
+   docs(api): add endpoints for version comparison
+   ```
+3. Run type-check frequently during development
+4. Test financial calculations with edge cases
+
+**Before Pushing:**
+1. Run full checklist from Section 6
+2. Review your own code (read the diff)
+3. Check for console errors in browser dev tools
+4. Verify no sensitive data in code (API keys, passwords)
+
+**After Pushing:**
+1. Verify Vercel deployment succeeds
+2. Check production logs for errors
+3. Test critical user flows in production
+
+---
+
+## 10. Documentation Requirements
+
+Every project component must include:
+
+### README.md
+- Project overview and purpose
+- Tech stack with versions
+- Setup instructions (environment variables, database, dependencies)
+- Quick start guide
+- Development commands
+
+### ARCHITECTURE.md
+- System design diagram
+- Data flow (user input → calculation → storage → display)
+- Key architectural decisions (why Web Workers, why Decimal.js, etc.)
+- Component hierarchy
+- State management strategy
+
+### API.md
+- All endpoints with:
+  - Method, path, authentication
+  - Request body schema (with examples)
+  - Response schema (with examples)
+  - Error codes and messages
+  - Performance expectations
+
+### DEPLOYMENT.md
+- Step-by-step deployment process
+- Environment variable setup (Vercel + Supabase)
+- Database migration process
+- Rollback procedures
+- Monitoring and alerting setup
+
+### RUNBOOK.md
+- Common issues and solutions
+- Troubleshooting guide
+- Maintenance tasks (database backups, log rotation, etc.)
+- Performance optimization tips
+- Emergency contact information
+
+---
+
+## 11. Target: <0.2% Error Rate
+
+To achieve world-class reliability:
+
+### 11.1 Test-Driven Development (TDD)
+
+**Write tests FIRST:**
+
+```typescript
+// Example: Rent calculation test (write BEFORE implementation)
+import { describe, it, expect } from 'vitest';
+import Decimal from 'decimal.js';
+import { calculateFixedEscalationRent } from '@/lib/calculations/rent';
+
+describe('calculateFixedEscalationRent', () => {
+  it('should calculate rent with 4% annual escalation', () => {
+    const result = calculateFixedEscalationRent({
+      baseRent: new Decimal(1000000), // 1M SAR
+      escalationRate: new Decimal(0.04), // 4%
+      startYear: 2028,
+      endYear: 2030,
+    });
+    
+    expect(result).toHaveLength(3); // 2028, 2029, 2030
+    expect(result[0].toString()).toBe('1000000'); // Year 1
+    expect(result[1].toString()).toBe('1040000'); // Year 2: 1M × 1.04
+    expect(result[2].toString()).toBe('1081600'); // Year 3: 1M × 1.04²
+  });
+  
+  it('should handle zero escalation rate', () => {
+    const result = calculateFixedEscalationRent({
+      baseRent: new Decimal(1000000),
+      escalationRate: new Decimal(0), // 0% escalation
+      startYear: 2028,
+      endYear: 2030,
+    });
+    
+    expect(result[0].toString()).toBe('1000000');
+    expect(result[1].toString()).toBe('1000000');
+    expect(result[2].toString()).toBe('1000000');
+  });
+  
+  it('should throw error for negative escalation rate', () => {
+    expect(() => {
+      calculateFixedEscalationRent({
+        baseRent: new Decimal(1000000),
+        escalationRate: new Decimal(-0.01), // Invalid
+        startYear: 2028,
+        endYear: 2030,
+      });
+    }).toThrow('Escalation rate cannot be negative');
+  });
+});
+```
+
+### 11.2 Type Guards for External Data
+
+**ALWAYS validate data from external sources:**
+
+```typescript
+import { z } from 'zod';
+
+// Example: API response from external system
+const ExternalDataSchema = z.object({
+  tuition: z.number().positive().finite(),
+  students: z.number().int().nonnegative(),
+  year: z.number().int().min(2023).max(2052),
+});
+
+function processExternalData(data: unknown): Result<ProcessedData> {
+  const validation = ExternalDataSchema.safeParse(data);
+  
+  if (!validation.success) {
+    return {
+      success: false,
+      error: 'Invalid external data format',
+      code: 'VALIDATION_ERROR',
+    };
+  }
+  
+  // Safe to use validated data
+  return processValidatedData(validation.data);
+}
+```
+
+### 11.3 Database Constraints (Defense in Depth)
+
+**ALWAYS use database constraints:**
+
+```prisma
+model CurriculumPlan {
+  id              String   @id @default(uuid())
+  versionId       String
+  curriculumType  CurriculumType
+  capacity        Int      // NOT NULL
+  tuitionBase     Float    // NOT NULL
+  cpiFrequency    Int      // NOT NULL
+  
+  // Constraints
+  @@check(capacity > 0, name: "capacity_positive")
+  @@check(tuitionBase > 0, name: "tuition_positive")
+  @@check(cpiFrequency IN (1, 2, 3), name: "cpi_frequency_valid")
+  @@unique([versionId, curriculumType]) // One plan per curriculum per version
+}
+
+model RentPlan {
+  id            String   @id @default(uuid())
+  versionId     String   @unique // One rent plan per version
+  rentModel     RentModel
+  escalationRate Float?
+  
+  // Constraints
+  @@check(escalationRate >= 0 OR escalationRate IS NULL, name: "escalation_non_negative")
+}
+```
+
+### 11.4 Code Review Checklist
+
+**Review your own code (next day) before merge:**
+
+- [ ] All functions have explicit return types
+- [ ] All async functions handle errors
+- [ ] All money calculations use Decimal.js
+- [ ] All user inputs are validated with Zod
+- [ ] All database mutations use transactions (if multi-step)
+- [ ] All mutations have audit logs
+- [ ] No console.logs in production code
+- [ ] User-facing errors are friendly
+- [ ] JSDoc comments are clear and accurate
+- [ ] Tests cover edge cases (zero, negative, boundary values)
+- [ ] Performance is acceptable (<50ms for calculations)
+
+---
+
+## 12. Design System & UI Rules
+
+### 12.1 Dark Mode Primary
+
+**ALWAYS design for dark mode first:**
+
+```typescript
+// /src/config/design-system.ts
+export const colors = {
+  // Dark Mode (Primary)
+  background: {
+    primary: '#0A0E1A',     // Deep navy
+    secondary: '#141825',   // Card backgrounds
+    tertiary: '#1E2332',    // Elevated surfaces
+  },
+  text: {
+    primary: '#F8FAFC',     // High contrast
+    secondary: '#94A3B8',   // Muted
+    tertiary: '#64748B',    // Subtle
+  },
+  accent: {
+    blue: '#3B82F6',        // Primary actions
+    green: '#10B981',       // Positive (EBITDA+)
+    red: '#EF4444',         // Negative (EBITDA-)
+    yellow: '#F59E0B',      // Warning (Transition period)
+    orange: '#F97316',      // Critical (Ramp-up period)
+  },
+  // Chart colors
+  chart: {
+    revenue: '#3B82F6',     // Blue
+    rent: '#8B5CF6',        // Purple
+    ebitda: '#10B981',      // Green
+    cashflow: '#14B8A6',    // Teal
+    rentLoad: '#F97316',    // Orange
+  },
+};
+
+// Usage in components
+<div className="bg-background-primary text-text-primary">
+  <Card className="bg-background-secondary border-background-tertiary">
+    {/* Content */}
+  </Card>
+</div>
+```
+
+### 12.2 Chart-First Design
+
+**ALWAYS prioritize data visualization:**
+
+```typescript
+import { LineChart, Line, XAxis, YAxis, Tooltip, Legend } from 'recharts';
+
+// Example: Revenue vs Rent chart
+function RevenueRentChart({ data }: { data: FinancialProjection[] }) {
+  return (
+    <LineChart width={800} height={400} data={data}>
+      <XAxis 
+        dataKey="year" 
+        stroke="#64748B"
+        style={{ fontSize: '12px' }}
+      />
+      <YAxis 
+        stroke="#64748B"
+        style={{ fontSize: '12px' }}
+        tickFormatter={(value) => `${(value / 1_000_000).toFixed(1)}M`}
+      />
+      <Tooltip 
+        contentStyle={{ 
+          backgroundColor: '#1E2332', 
+          border: '1px solid #334155' 
+        }}
+      />
+      <Legend />
+      <Line 
+        type="monotone" 
+        dataKey="revenue" 
+        stroke="#3B82F6" 
+        strokeWidth={2}
+        name="Revenue"
+      />
+      <Line 
+        type="monotone" 
+        dataKey="rent" 
+        stroke="#8B5CF6" 
+        strokeWidth={2}
+        name="Rent"
+      />
+    </LineChart>
+  );
+}
+```
+
+### 12.3 Accessibility (WCAG 2.1 AA+)
+
+**ALWAYS meet accessibility standards:**
+
+```typescript
+// ✅ CORRECT: Semantic HTML, ARIA labels, keyboard navigation
+<button
+  type="button"
+  onClick={handleSave}
+  aria-label="Save version"
+  className="px-4 py-2 bg-accent-blue text-text-primary rounded-md
+             hover:bg-accent-blue/90 focus:outline-none focus:ring-2 
+             focus:ring-accent-blue focus:ring-offset-2 focus:ring-offset-background-primary
+             disabled:opacity-50 disabled:cursor-not-allowed"
+  disabled={loading}
+>
+  {loading ? 'Saving...' : 'Save Version'}
+</button>
+
+// ✅ CORRECT: Form labels
+<label htmlFor="tuition-input" className="block text-sm font-medium text-text-secondary">
+  Base Tuition (SAR)
+</label>
+<input
+  id="tuition-input"
+  type="number"
+  min="0"
+  step="1000"
+  aria-describedby="tuition-help"
+  className="mt-1 block w-full rounded-md border-background-tertiary
+             bg-background-secondary text-text-primary
+             focus:border-accent-blue focus:ring-accent-blue"
+/>
+<p id="tuition-help" className="mt-1 text-sm text-text-tertiary">
+  Enter the base tuition amount. This will grow automatically via CPI.
+</p>
+
+// ✅ CORRECT: Color + Icon (not color alone)
+<div className="flex items-center gap-2">
+  {ebitda > 0 ? (
+    <>
+      <TrendingUpIcon className="w-4 h-4 text-accent-green" />
+      <span className="text-accent-green">Positive EBITDA</span>
+    </>
+  ) : (
+    <>
+      <TrendingDownIcon className="w-4 h-4 text-accent-red" />
+      <span className="text-accent-red">Negative EBITDA</span>
+    </>
+  )}
+</div>
+```
+
+---
+
+## 13. Security & Compliance
+
+### 13.1 Environment Variables (NEVER COMMIT)
+
+**ALWAYS use .env.local for secrets:**
+
+```bash
+# .env.local (NEVER commit this file)
+DATABASE_URL="postgresql://..."
+DIRECT_URL="postgresql://..."
+NEXTAUTH_SECRET="..."
+NEXTAUTH_URL="http://localhost:3000"
+SUPABASE_ANON_KEY="..."
+SUPABASE_SERVICE_ROLE_KEY="..."
+
+# .env.local.example (commit this as template)
+DATABASE_URL="postgresql://user:password@host:port/database?pgbouncer=true&sslmode=require"
+DIRECT_URL="postgresql://user:password@host:port/database?sslmode=require"
+NEXTAUTH_SECRET="generate-with-openssl-rand-base64-32"
+NEXTAUTH_URL="http://localhost:3000"
+SUPABASE_ANON_KEY="your-supabase-anon-key"
+SUPABASE_SERVICE_ROLE_KEY="your-supabase-service-role-key"
+```
+
+### 13.2 Authentication & Authorization
+
+**ALWAYS check user permissions:**
+
+```typescript
+// Example: Middleware for API routes
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+
+export async function requireAuth(req: Request): Promise<Result<User>> {
+  const session = await getServerSession(authOptions);
+  
+  if (!session || !session.user) {
+    return { success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' };
+  }
+  
+  return { success: true, data: session.user };
+}
+
+export async function requireRole(
+  req: Request,
+  allowedRoles: Role[]
+): Promise<Result<User>> {
+  const authResult = await requireAuth(req);
+  
+  if (!authResult.success) {
+    return authResult;
+  }
+  
+  const user = authResult.data;
+  
+  if (!allowedRoles.includes(user.role)) {
+    return { success: false, error: 'Forbidden', code: 'FORBIDDEN' };
+  }
+  
+  return { success: true, data: user };
+}
+
+// Usage in API route
+export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+  // Only ADMIN can delete versions
+  const authResult = await requireRole(req, ['ADMIN']);
+  
+  if (!authResult.success) {
+    return Response.json(authResult, { status: 401 });
+  }
+  
+  const result = await deleteVersion(params.id, authResult.data.id);
+  // ...
+}
+```
+
+---
+
+## 14. Monitoring & Logging
+
+### 14.1 Production Logging
+
+**ALWAYS log errors with context:**
+
+```typescript
+// Example: Structured error logging
+interface ErrorLog {
+  level: 'error' | 'warn' | 'info';
+  message: string;
+  context: Record<string, unknown>;
+  timestamp: Date;
+  userId?: string;
+}
+
+function logError(error: Error, context: Record<string, unknown>): void {
+  const log: ErrorLog = {
+    level: 'error',
+    message: error.message,
+    context: {
+      ...context,
+      stack: error.stack,
+    },
+    timestamp: new Date(),
+  };
+  
+  console.error(JSON.stringify(log));
+  
+  // TODO: Send to monitoring service (Sentry, LogRocket, etc.)
+}
+
+// Usage
+try {
+  const result = await calculateNPV(cashFlows, discountRate);
+} catch (error) {
+  logError(error as Error, {
+    operation: 'calculateNPV',
+    versionId: version.id,
+    userId: user.id,
+    cashFlowsLength: cashFlows.length,
+    discountRate: discountRate.toString(),
+  });
+  
+  return { success: false, error: 'Failed to calculate NPV' };
+}
+```
+
+### 14.2 Performance Monitoring
+
+**ALWAYS track performance metrics:**
+
+```typescript
+// Example: Performance tracking
+function trackPerformance(
+  operation: string,
+  duration: number,
+  context: Record<string, unknown>
+): void {
+  const log = {
+    type: 'performance',
+    operation,
+    duration,
+    context,
+    timestamp: new Date(),
+  };
+  
+  console.log(JSON.stringify(log));
+  
+  if (duration > 50) {
+    console.warn(`⚠️ ${operation} exceeded 50ms target: ${duration.toFixed(2)}ms`);
+  }
+}
+
+// Usage
+async function calculateFullProjection(params: FinancialParameters): Promise<Result<FinancialProjection>> {
+  const startTime = performance.now();
+  
+  try {
+    const result = await performCalculation(params);
+    const duration = performance.now() - startTime;
+    
+    trackPerformance('calculateFullProjection', duration, {
+      versionId: params.versionId,
+      yearsCount: params.endYear - params.startYear + 1,
+    });
+    
+    return { success: true, data: result };
+  } catch (error) {
+    return { success: false, error: 'Calculation failed' };
+  }
+}
+```
+
+---
+
+## 15. Git Workflow
+
+### 15.1 Branch Naming
+
+```bash
+# Feature branches
+git checkout -b feat/simulation-page
+git checkout -b feat/rent-partner-model
+
+# Bug fix branches
+git checkout -b fix/tuition-negative-value
+git checkout -b fix/npv-calculation-precision
+
+# Refactor branches
+git checkout -b refactor/extract-audit-helper
+git checkout -b refactor/optimize-calculations
+
+# Documentation branches
+git checkout -b docs/api-endpoints
+git checkout -b docs/deployment-guide
+```
+
+### 15.2 Commit Messages (Conventional Commits)
+
+```bash
+# Format: <type>(<scope>): <subject>
+
+# Examples
+git commit -m "feat(rent): add PartnerModel calculation with yield-based rent"
+git commit -m "fix(tuition): prevent negative tuition values in input validation"
+git commit -m "refactor(db): extract audit log helper function for reusability"
+git commit -m "docs(api): add endpoints documentation for version comparison"
+git commit -m "test(financial): add edge cases for NPV calculation"
+git commit -m "perf(calc): optimize revenue calculation using memoization"
+git commit -m "chore(deps): update Prisma to 5.8.0"
+
+# Types: feat, fix, refactor, docs, test, perf, chore, style, ci
+```
+
+---
+
+## FINAL CHECKLIST FOR EVERY CODE CHANGE
+
+Before considering any task complete:
+
+- [ ] Code follows TypeScript strict mode (no `any`, explicit return types)
+- [ ] All financial calculations use Decimal.js (no floating point)
+- [ ] All user inputs validated with Zod
+- [ ] All database operations use transactions (if multi-step)
+- [ ] All mutations have audit logs
+- [ ] Error handling uses Result<T> pattern
+- [ ] User-facing errors are friendly
+- [ ] JSDoc comments with @param and @returns
+- [ ] No console.logs in production code (only console.error for unexpected errors)
+- [ ] No hardcoded credentials or API keys
+- [ ] Environment variables documented in .env.local.example
+- [ ] Type check passes (`npm run type-check`)
+- [ ] Lint passes (`npm run lint`)
+- [ ] Tests pass (`npm run test`)
+- [ ] Build succeeds (`npm run build`)
+- [ ] Performance <50ms for calculations
+- [ ] Accessibility: ARIA labels, keyboard navigation, color+icon
+- [ ] Dark mode styling applied
+- [ ] Critical business rules respected (rent-tuition independence, curriculum ramp-up, NPV period)
+
+---
+
+**Document Version:** 1.0  
+**Last Updated:** November 13, 2025  
+**Project:** Project Zeta - Financial Planning Application  
+**Owner:** Faker Helali
+

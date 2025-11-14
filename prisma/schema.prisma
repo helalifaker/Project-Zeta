@@ -1,0 +1,281 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum Role {
+  ADMIN
+  PLANNER
+  VIEWER
+}
+
+enum VersionMode {
+  RELOCATION_2028
+  HISTORICAL_BASELINE
+}
+
+enum VersionStatus {
+  DRAFT
+  READY
+  APPROVED
+  LOCKED
+}
+
+enum CurriculumType {
+  FR
+  IB
+}
+
+enum RentModel {
+  FIXED_ESCALATION
+  REVENUE_SHARE
+  PARTNER_MODEL
+}
+
+enum CapexCategory {
+  BUILDING
+  TECHNOLOGY
+  EQUIPMENT
+  FURNITURE
+  VEHICLES
+  OTHER
+}
+
+enum EntityType {
+  VERSION
+  CURRICULUM
+  RENT
+  CAPEX
+  OPEX
+  USER
+  SETTING
+  REPORT
+}
+
+enum ReportType {
+  EXECUTIVE_SUMMARY
+  FINANCIAL_DETAIL
+  COMPARISON
+}
+
+enum ReportFormat {
+  PDF
+  EXCEL
+}
+
+// ============================================================================
+// MODELS
+// ============================================================================
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  emailVerified DateTime?
+  name          String?
+  password      String?
+  role          Role     @default(VIEWER)
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  lastLoginAt   DateTime?
+
+  // Relationships
+  versions      Version[]            @relation("UserCreatedVersions")
+  simulations   TuitionSimulation[]  @relation("UserCreatedSimulations")
+  auditLogs     AuditLog[]
+  reports       Report[]             @relation("UserGeneratedReports")
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+model Version {
+  id          String   @id @default(uuid())
+  name        String
+  description String?  @db.Text
+  mode        VersionMode
+  status      VersionStatus @default(DRAFT)
+  createdBy   String
+  basedOnId   String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  lockedAt    DateTime?
+  lockedBy    String?
+  lockReason  String?  @db.Text
+
+  // Relationships
+  creator     User     @relation("UserCreatedVersions", fields: [createdBy], references: [id])
+  basedOn     Version? @relation("VersionBasedOn", fields: [basedOnId], references: [id])
+  derivatives Version[] @relation("VersionBasedOn")
+
+  curriculumPlans CurriculumPlan[]
+  rentPlan        RentPlan?
+  capexItems      CapexItem[]
+  opexSubAccounts OpexSubAccount[]
+  simulations     TuitionSimulation[]
+  reports         Report[]
+
+  @@unique([name, createdBy])
+  @@index([createdBy])
+  @@index([status, createdAt])
+  @@index([mode])
+  @@map("versions")
+}
+
+model CurriculumPlan {
+  id                 String   @id @default(uuid())
+  versionId          String
+  curriculumType     CurriculumType
+  capacity           Int
+  tuitionBase        Decimal  @db.Decimal(15, 2)
+  cpiFrequency       Int
+  studentsProjection Json
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  version            Version  @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@unique([versionId, curriculumType])
+  @@index([versionId])
+  @@map("curriculum_plans")
+}
+
+model RentPlan {
+  id         String   @id @default(uuid())
+  versionId  String   @unique
+  rentModel  RentModel
+  parameters Json
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  version    Version  @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([rentModel])
+  @@map("rent_plans")
+}
+
+model CapexItem {
+  id          String   @id @default(uuid())
+  versionId   String
+  year        Int
+  category    CapexCategory
+  amount      Decimal  @db.Decimal(15, 2)
+  description String?  @db.Text
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  version     Version  @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId, year])
+  @@map("capex_items")
+}
+
+model OpexSubAccount {
+  id                String   @id @default(uuid())
+  versionId         String
+  subAccountName    String
+  percentOfRevenue  Decimal? @db.Decimal(5, 2)
+  isFixed           Boolean
+  fixedAmount       Decimal? @db.Decimal(15, 2)
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  version           Version  @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@unique([versionId, subAccountName])
+  @@index([versionId])
+  @@map("opex_sub_accounts")
+}
+
+model TuitionSimulation {
+  id          String   @id @default(uuid())
+  versionId   String
+  name        String
+  adjustments Json
+  createdBy   String
+
+  createdAt   DateTime @default(now())
+
+  version     Version  @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  creator     User     @relation("UserCreatedSimulations", fields: [createdBy], references: [id])
+
+  @@index([versionId])
+  @@index([createdBy])
+  @@map("tuition_simulations")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  action      String
+  userId      String
+  entityType  EntityType
+  entityId    String
+  metadata    Json?
+  timestamp   DateTime @default(now())
+  ipAddress   String?
+  userAgent   String?  @db.Text
+
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, timestamp])
+  @@index([entityType, entityId])
+  @@index([action, timestamp])
+  @@map("audit_logs")
+}
+
+model AdminSetting {
+  id         String   @id @default(uuid())
+  key        String   @unique
+  value      Json
+  updatedAt  DateTime @updatedAt
+  updatedBy  String?
+
+  @@index([key])
+  @@map("admin_settings")
+}
+
+model Report {
+  id          String      @id @default(uuid())
+  versionId   String?
+  reportType  ReportType
+  format      ReportFormat
+  fileName    String
+  filePath    String
+  fileSize    Int
+  downloadUrl String
+  expiresAt   DateTime
+  generatedBy String
+  generatedAt DateTime    @default(now())
+  metadata    Json?
+  deletedAt   DateTime?
+
+  version     Version?    @relation(fields: [versionId], references: [id], onDelete: SetNull)
+  generator   User        @relation("UserGeneratedReports", fields: [generatedBy], references: [id])
+
+  @@index([generatedBy])
+  @@index([versionId])
+  @@index([reportType])
+  @@index([format])
+  @@index([generatedAt])
+  @@index([expiresAt])
+  @@map("reports")
+}
+
