@@ -23,45 +23,28 @@ export default async function DashboardPage(): Promise<JSX.Element> {
   // Fetch user's versions directly from database using service layer
   const userId = session.user.id;
   
-  // Test database connection first
-  const { testDatabaseConnection } = await import('@/lib/db/test-connection');
-  const connectionTest = await testDatabaseConnection();
-  
-  if (!connectionTest.success) {
-    console.error('Dashboard: Database connection failed:', connectionTest.error);
-    return (
-      <div className="container mx-auto py-6 px-4">
-        <Card className="p-6 border-destructive">
-          <div className="text-destructive space-y-2">
-            <p className="font-semibold">Database Connection Error</p>
-            <p className="text-sm text-muted-foreground">
-              Unable to connect to the database. Please check your connection settings.
-            </p>
-            <p className="text-xs text-muted-foreground mt-4 font-mono">
-              {connectionTest.error || 'Unknown connection error'}
-            </p>
-            <p className="text-xs text-muted-foreground mt-2">
-              Make sure DATABASE_URL is set in your .env.local file.
-            </p>
-          </div>
-        </Card>
-      </div>
-    );
-  }
+  // Skip database connection test for faster loading
+  // Direct query is faster than testing connection first
   
   // Import version service function
   const { listVersions } = await import('@/services/version');
   
+  // Time the query for performance monitoring
+  const queryStart = performance.now();
   let versionsResult;
   try {
-    // Fetch only first page with limited results for faster initial load
+    // Fetch only first page with limited results for instant navigation
     versionsResult = await listVersions(
       {
         page: 1,
-        limit: 5, // Reduced to 5 for instant navigation
+        limit: 5,
       },
       userId
     );
+    const queryTime = performance.now() - queryStart;
+    if (queryTime > 100) {
+      console.warn(`⚠️ Dashboard query took ${queryTime.toFixed(0)}ms (target: <100ms)`);
+    }
   } catch (err) {
     console.error('Dashboard: Failed to load versions:', err);
     const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
@@ -113,15 +96,17 @@ export default async function DashboardPage(): Promise<JSX.Element> {
     );
   }
 
-  // Don't fetch full details on initial load - makes navigation INSTANT
-  // All version details will be loaded on-demand when user selects a version
+  // Pass lightweight version list (just id + name) for version selector
+  // Full version details will be loaded on-demand when user selects a version
+  const versions = versionsResult.data.versions || [];
+  
   return (
     <Suspense fallback={
       <div className="min-h-screen flex items-center justify-center">
         <Skeleton className="h-96 w-full max-w-6xl" />
       </div>
     }>
-      <DashboardClient versions={[]} />
+      <DashboardClient versions={versions as any} />
     </Suspense>
   );
 }
