@@ -63,8 +63,11 @@ self.onmessage = (event: MessageEvent<CalculationRequest>) => {
       const result = calculateFullProjection(event.data.params);
       const duration = performance.now() - startTime;
 
+      // Log performance (target: <50ms)
       if (duration > 50) {
-        console.warn(`⚠️ Calculation exceeded 50ms: ${duration.toFixed(2)}ms`);
+        console.warn(`⚠️ Calculation exceeded 50ms target: ${duration.toFixed(0)}ms`);
+      } else {
+        console.log(`✅ Calculation completed in ${duration.toFixed(0)}ms (target: <50ms)`);
       }
 
       if (!result.success) {
@@ -79,7 +82,13 @@ self.onmessage = (event: MessageEvent<CalculationRequest>) => {
 
       // Serialize result data to convert Decimal objects to numbers
       // This prevents DataCloneError when sending back to main thread
+      const serializationStart = performance.now();
       const serializedData = serializeProjectionResult(result.data);
+      const serializationTime = performance.now() - serializationStart;
+      
+      if (serializationTime > 10) {
+        console.warn(`⚠️ Serialization took ${serializationTime.toFixed(0)}ms`);
+      }
 
       const response: CalculationResponse = {
         success: true,
