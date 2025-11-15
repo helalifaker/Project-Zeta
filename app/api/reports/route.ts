@@ -17,11 +17,19 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const session = await auth();
 
     if (!session || !session.user) {
+      console.error('Reports API: No session or user');
       return NextResponse.json(
         { success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' },
         { status: 401 }
       );
     }
+
+    console.log('Reports API: Session user:', {
+      id: session.user.id,
+      email: session.user.email,
+      hasRole: !!session.user.role,
+      role: session.user.role,
+    });
 
     const userId = session.user.id;
     const userRole = session.user.role || 'VIEWER'; // Default to VIEWER if role not found
@@ -125,8 +133,19 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     );
   } catch (error) {
     console.error('Error listing reports:', error);
+    if (error instanceof Error) {
+      console.error('Reports API error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+      });
+    }
     return NextResponse.json(
-      { success: false, error: 'Internal server error', code: 'INTERNAL_ERROR' },
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Internal server error',
+        code: 'INTERNAL_ERROR',
+      },
       { status: 500 }
     );
   }
