@@ -220,36 +220,24 @@ export function Dashboard({ versions }: DashboardProps) {
   // Cache for loaded versions (to avoid re-fetching)
   // Initialize cache safely to avoid hydration issues
   const [versionCache, setVersionCache] = useState<Map<string, VersionWithRelations>>(() => {
-    if (typeof window === 'undefined') {
-      // Server-side: return empty map
-      return new Map<string, VersionWithRelations>();
-    }
-    // Client-side: initialize with provided versions
-    const cache = new Map<string, VersionWithRelations>();
-    if (Array.isArray(versions)) {
-      versions.forEach(v => {
-        if (v && v.id) {
-          cache.set(v.id, v);
-        }
-      });
-    }
-    return cache;
+    // Initialize empty map on first render only (SSR-safe)
+    return new Map<string, VersionWithRelations>();
   });
   
-  // Update cache when versions prop changes (but only on client)
+  // Initialize cache with provided versions once on mount
+  const [cacheInitialized, setCacheInitialized] = useState(false);
   useEffect(() => {
-    if (typeof window !== 'undefined' && Array.isArray(versions)) {
-      setVersionCache(prev => {
-        const newCache = new Map(prev);
-        versions.forEach(v => {
-          if (v && v.id && !newCache.has(v.id)) {
-            newCache.set(v.id, v);
-          }
-        });
-        return newCache;
+    if (!cacheInitialized && versions.length > 0) {
+      const newCache = new Map<string, VersionWithRelations>();
+      versions.forEach(v => {
+        if (v && v.id) {
+          newCache.set(v.id, v);
+        }
       });
+      setVersionCache(newCache);
+      setCacheInitialized(true);
     }
-  }, [versions]);
+  }, [cacheInitialized, versions]);
 
   // Initialize store with versions
   useEffect(() => {
@@ -257,17 +245,23 @@ export function Dashboard({ versions }: DashboardProps) {
     if (versions.length > 0 && !selectedVersionId && versions[0]) {
       setSelectedVersionId(versions[0].id);
     }
-  }, [versions, selectedVersionId, setVersions, setSelectedVersionId]);
+  }, [versions, selectedVersionId]);
+  // Note: Zustand setters are stable
 
   // Get selected version from cache or initial versions
   const selectedVersion = useMemo(() => {
     if (!selectedVersionId) return null;
     return versionCache.get(selectedVersionId) || versions.find((v) => v.id === selectedVersionId) || null;
-  }, [versions, selectedVersionId, versionCache]);
+  }, [versions, selectedVersionId]);
+  // Note: versionCache is a Map (reference changes), so we omit it to prevent infinite loops
   
   // Load version details on-demand when selected version is not in cache
   useEffect(() => {
-    if (!selectedVersionId || versionCache.has(selectedVersionId)) return;
+    if (!selectedVersionId) return;
+    
+    // Check cache before fetching (but don't include versionCache in deps)
+    const cached = versionCache.get(selectedVersionId);
+    if (cached) return;
     
     let cancelled = false;
     
@@ -293,7 +287,8 @@ export function Dashboard({ versions }: DashboardProps) {
     return () => {
       cancelled = true;
     };
-  }, [selectedVersionId, versionCache]);
+  }, [selectedVersionId]);
+  // Note: versionCache is a Map, omitted from deps to prevent infinite loops
 
   // Memoize projection params to avoid recalculating on every render
   const projectionParams = useMemo(() => {
@@ -330,7 +325,8 @@ export function Dashboard({ versions }: DashboardProps) {
     } else if (calculationLoading) {
       setLoading(true);
     }
-  }, [calculationLoading, calculationError, calculatedProjection, setLoading, setError, setProjection]);
+  }, [calculationLoading, calculationError, calculatedProjection]);
+  // Note: Zustand setters are stable and don't need to be in deps
 
   const chartData = useMemo(() => {
     if (!projection) return null;

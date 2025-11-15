@@ -8,9 +8,7 @@ import { Suspense } from 'react';
 import { auth } from '@/lib/auth/config';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { VersionWithRelations } from '@/services/version';
 import { DashboardClient } from '@/components/dashboard/DashboardClient';
-import { serializeVersionForClient } from '@/lib/utils/serialize';
 
 export const revalidate = 60; // Revalidate every 60 seconds
 
@@ -24,7 +22,6 @@ export default async function DashboardPage(): Promise<JSX.Element> {
 
   // Fetch user's versions directly from database using service layer
   const userId = session.user.id;
-  const userRole = session.user.role;
   
   // Test database connection first
   const { testDatabaseConnection } = await import('@/lib/db/test-connection');
@@ -52,8 +49,8 @@ export default async function DashboardPage(): Promise<JSX.Element> {
     );
   }
   
-  // Import version service functions
-  const { listVersions, getVersionById } = await import('@/services/version');
+  // Import version service function
+  const { listVersions } = await import('@/services/version');
   
   let versionsResult;
   try {
@@ -61,7 +58,7 @@ export default async function DashboardPage(): Promise<JSX.Element> {
     versionsResult = await listVersions(
       {
         page: 1,
-        limit: 10, // Reduced from 100 to 10 for faster loading
+        limit: 5, // Reduced to 5 for instant navigation
       },
       userId
     );
@@ -116,33 +113,15 @@ export default async function DashboardPage(): Promise<JSX.Element> {
     );
   }
 
-  const versions = versionsResult.data.versions || [];
-
-  // Fetch full details only for the first version initially (for faster initial load)
-  // Other versions will be loaded on-demand when selected
-  const versionsWithDetails: VersionWithRelations[] = [];
-  
-  if (versions.length > 0 && versions[0]) {
-    try {
-      const firstVersion = versions[0];
-      const versionResult = await getVersionById(firstVersion.id, userId, userRole);
-      if (versionResult.success && versionResult.data) {
-        // Serialize version data for Client Component (convert Decimal to number)
-        versionsWithDetails.push(serializeVersionForClient(versionResult.data));
-      }
-    } catch (err) {
-      console.error('Dashboard: Failed to load first version details:', err);
-      // Continue without the first version's details - it will load on-demand
-    }
-  }
-
+  // Don't fetch full details on initial load - makes navigation INSTANT
+  // All version details will be loaded on-demand when user selects a version
   return (
     <Suspense fallback={
       <div className="min-h-screen flex items-center justify-center">
         <Skeleton className="h-96 w-full max-w-6xl" />
       </div>
     }>
-      <DashboardClient versions={versionsWithDetails} />
+      <DashboardClient versions={[]} />
     </Suspense>
   );
 }
