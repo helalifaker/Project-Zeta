@@ -131,9 +131,9 @@ export function ReportList({ versions }: ReportListProps) {
             <div className="space-y-2">
               <label className="text-sm font-medium">Version</label>
               <Select
-                value={filters.versionId || ''}
+                value={filters.versionId || 'all'}
                 onValueChange={(value) => {
-                  if (value) {
+                  if (value && value !== 'all') {
                     setFilters({ versionId: value });
                   } else {
                     const { versionId: _, ...rest } = filters;
@@ -145,8 +145,8 @@ export function ReportList({ versions }: ReportListProps) {
                   <SelectValue placeholder="All versions" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All versions</SelectItem>
-                  {versions.map((version) => (
+                  <SelectItem value="all">All versions</SelectItem>
+                  {versions.filter(v => v && v.id).map((version) => (
                     <SelectItem key={version.id} value={version.id}>
                       {version.name}
                     </SelectItem>
@@ -157,9 +157,9 @@ export function ReportList({ versions }: ReportListProps) {
             <div className="space-y-2">
               <label className="text-sm font-medium">Report Type</label>
               <Select
-                value={filters.reportType || ''}
+                value={filters.reportType || 'all'}
                 onValueChange={(value) => {
-                  if (value) {
+                  if (value && value !== 'all') {
                     setFilters({ reportType: value });
                   } else {
                     const { reportType: _, ...rest } = filters;
@@ -171,7 +171,7 @@ export function ReportList({ versions }: ReportListProps) {
                   <SelectValue placeholder="All types" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All types</SelectItem>
+                  <SelectItem value="all">All types</SelectItem>
                   <SelectItem value="EXECUTIVE_SUMMARY">Executive Summary</SelectItem>
                   <SelectItem value="FINANCIAL_DETAIL">Financial Detail</SelectItem>
                   <SelectItem value="COMPARISON">Comparison</SelectItem>
@@ -181,9 +181,9 @@ export function ReportList({ versions }: ReportListProps) {
             <div className="space-y-2">
               <label className="text-sm font-medium">Format</label>
               <Select
-                value={filters.format || ''}
+                value={filters.format || 'all'}
                 onValueChange={(value) => {
-                  if (value) {
+                  if (value && value !== 'all') {
                     setFilters({ format: value });
                   } else {
                     const { format: _, ...rest } = filters;
@@ -195,7 +195,7 @@ export function ReportList({ versions }: ReportListProps) {
                   <SelectValue placeholder="All formats" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All formats</SelectItem>
+                  <SelectItem value="all">All formats</SelectItem>
                   <SelectItem value="PDF">PDF</SelectItem>
                   <SelectItem value="EXCEL">Excel</SelectItem>
                 </SelectContent>
