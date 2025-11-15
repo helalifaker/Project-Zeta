@@ -21,80 +21,56 @@ export default async function ReportsPage(): Promise<JSX.Element> {
     redirect('/auth/signin?callbackUrl=/reports');
   }
 
-  // Fetch user's reports from API
-  const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
-  const response = await fetch(`${baseUrl}/api/reports?page=1&limit=100`, {
-    headers: {
-      Cookie: `next-auth.session-token=${(session as { token?: string }).token || ''}`,
-    },
-    cache: 'no-store',
-  });
+  const userId = session.user.id;
+  const userRole = session.user.role;
 
-  if (!response.ok) {
+  // Fetch user's versions for report generation (versions list, not reports)
+  const { listVersions } = await import('@/services/version');
+  
+  const versionsResult = await listVersions(
+    { page: 1, limit: 100 },
+    userId
+  );
+
+  if (!versionsResult.success) {
     return (
       <div className="container mx-auto py-6 px-4">
         <Card className="p-6">
           <div className="text-destructive">
-            Failed to load reports. Please try again later.
+            {versionsResult.error || 'Failed to load versions'}
           </div>
         </Card>
       </div>
     );
   }
 
-  const data = await response.json();
-
-  if (!data.success) {
-    return (
-      <div className="container mx-auto py-6 px-4">
-        <Card className="p-6">
-          <div className="text-destructive">
-            {data.error || 'Failed to load reports'}
-          </div>
-        </Card>
-      </div>
-    );
-  }
-
-  const reports = data.data.reports || [];
-  const pagination = data.data.pagination || {
-    page: 1,
-    limit: 20,
-    total: 0,
-    totalPages: 0,
-  };
-
-  // Fetch available versions for report generation
-  const versionsResponse = await fetch(`${baseUrl}/api/versions?page=1&limit=100`, {
-    headers: {
-      Cookie: `next-auth.session-token=${(session as { token?: string }).token || ''}`,
-    },
-    cache: 'no-store',
-  });
-
-  let versions: Array<{ id: string; name: string; [key: string]: unknown }> = [];
-  if (versionsResponse.ok) {
-    const versionsData = await versionsResponse.json();
-    if (versionsData.success) {
-      versions = versionsData.data.versions || [];
-    }
-  }
-
-  const userRole = (session.user as { role?: string }).role || 'VIEWER';
+  const versions = versionsResult.data.versions || [];
+  
+  // Transform versions to simple format for reports
+  const versionsForReports = versions.map(v => ({
+    id: v.id,
+    name: v.name,
+  }));
 
   return (
     <AuthenticatedLayout>
       <div className="container mx-auto py-6 px-4">
-        <Suspense fallback={
-          <div className="space-y-6">
-            <Skeleton className="h-8 w-64" />
-            <Skeleton className="h-96" />
-          </div>
-        }>
-          <ReportsClient
-            initialReports={reports}
-            initialPagination={pagination}
-            versions={versions}
+        <Suspense
+          fallback={
+            <div className="space-y-6">
+              <Skeleton className="h-8 w-64" />
+              <div className="grid gap-4">
+                {[...Array(5)].map((_, i) => (
+                  <Skeleton key={i} className="h-24" />
+                ))}
+              </div>
+            </div>
+          }
+        >
+          <ReportsClient 
+            initialReports={[]} 
+            initialPagination={{ page: 1, limit: 20, total: 0, totalPages: 0 }}
+            versions={versionsForReports}
             userRole={userRole}
           />
         </Suspense>
@@ -102,4 +78,3 @@ export default async function ReportsPage(): Promise<JSX.Element> {
     </AuthenticatedLayout>
   );
 }
-

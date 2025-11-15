@@ -54,46 +54,39 @@ export default async function VersionsPage({ searchParams }: VersionsPageProps) 
   const page = parseInt(params.page || '1', 10);
   const limit = Math.min(parseInt(params.limit || '20', 10), 100);
 
-  // Build query params for API
-  const queryParams = new URLSearchParams({
-    page: String(page),
-    limit: String(limit),
-    ...(params.status && params.status !== 'all' && { status: params.status }),
-    ...(params.mode && params.mode !== 'all' && { mode: params.mode }),
-    ...(params.search && { search: params.search }),
-    ...(params.sortBy && { sortBy: params.sortBy }),
-    ...(params.sortOrder && { sortOrder: params.sortOrder }),
-  });
-
-  // Fetch versions from API (cache for 60 seconds)
-  const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
-  const response = await fetch(`${baseUrl}/api/versions?${queryParams.toString()}`, {
-    headers: {
-      Cookie: `next-auth.session-token=${(session as any).token || ''}`,
-    },
-    next: { revalidate: 60 }, // Cache for 60 seconds
-  });
-
-  if (!response.ok) {
-    return (
-      <div className="p-6">
-        <Card className="p-6">
-          <div className="text-destructive">
-            Failed to load versions. Please try again later.
-          </div>
-        </Card>
-      </div>
-    );
+  // Fetch versions directly from service layer (Server Component can access database directly)
+  const { listVersions } = await import('@/services/version');
+  
+  const queryParams: any = {
+    page,
+    limit,
+  };
+  
+  // Only add optional params if they have values
+  if (params.status && params.status !== 'all') {
+    queryParams.status = params.status;
   }
+  if (params.mode && params.mode !== 'all') {
+    queryParams.mode = params.mode;
+  }
+  if (params.search) {
+    queryParams.search = params.search;
+  }
+  if (params.sortBy) {
+    queryParams.sortBy = params.sortBy;
+  }
+  if (params.sortOrder) {
+    queryParams.sortOrder = params.sortOrder;
+  }
+  
+  const versionsResult = await listVersions(queryParams, session.user.id);
 
-  const data = await response.json();
-
-  if (!data.success) {
+  if (!versionsResult.success) {
     return (
       <div className="p-6">
         <Card className="p-6">
           <div className="text-destructive">
-            {data.error || 'Failed to load versions'}
+            {versionsResult.error || 'Failed to load versions'}
           </div>
         </Card>
       </div>
@@ -105,8 +98,8 @@ export default async function VersionsPage({ searchParams }: VersionsPageProps) 
       <div className="container mx-auto py-6 px-4">
         <Suspense fallback={<VersionsPageSkeleton />}>
           <VersionList
-            initialVersions={data.data.versions}
-            initialPagination={data.data.pagination}
+            initialVersions={versionsResult.data.versions}
+            initialPagination={versionsResult.data.pagination}
           />
         </Suspense>
       </div>

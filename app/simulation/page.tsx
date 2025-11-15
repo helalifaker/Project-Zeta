@@ -11,6 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import type { VersionWithRelations } from '@/services/version';
 import { SimulationClient } from '@/components/simulation/SimulationClient';
 import { AuthenticatedLayout } from '@/components/layout/AuthenticatedLayout';
+import { serializeVersionForClient } from '@/lib/utils/serialize';
 
 export const revalidate = 60; // Revalidate every 60 seconds
 
@@ -23,7 +24,7 @@ export default async function SimulationPage(): Promise<JSX.Element> {
   }
 
   // Check role - only ADMIN and PLANNER can access simulation
-  const userRole = (session.user as { role?: string }).role;
+  const userRole = session.user.role;
   if (userRole !== 'ADMIN' && userRole !== 'PLANNER') {
     return (
       <div className="container mx-auto py-6 px-4">
@@ -36,85 +37,63 @@ export default async function SimulationPage(): Promise<JSX.Element> {
     );
   }
 
-  // Fetch user's versions from API
-  const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
-  const response = await fetch(`${baseUrl}/api/versions?page=1&limit=100`, {
-    headers: {
-      Cookie: `next-auth.session-token=${(session as { token?: string }).token || ''}`,
-    },
-    cache: 'no-store',
-  });
+  const userId = session.user.id;
 
-  if (!response.ok) {
-    return (
-      <div className="container mx-auto py-6 px-4">
-        <Card className="p-6">
-          <div className="text-destructive">
-            Failed to load versions. Please try again later.
-          </div>
-        </Card>
-      </div>
-    );
-  }
-
-  const data = await response.json();
-
-  if (!data.success) {
-    return (
-      <div className="container mx-auto py-6 px-4">
-        <Card className="p-6">
-          <div className="text-destructive">
-            {data.error || 'Failed to load versions'}
-          </div>
-        </Card>
-      </div>
-    );
-  }
-
-  const versions = data.data.versions || [];
-
-  // Fetch full details with relationships for each version
-  const versionsWithDetails: VersionWithRelations[] = await Promise.all(
-    versions.slice(0, 10).map(async (version: { id: string; [key: string]: unknown }) => {
-      try {
-        const versionResponse = await fetch(`${baseUrl}/api/versions/${version.id}`, {
-          headers: {
-            Cookie: `next-auth.session-token=${(session as { token?: string }).token || ''}`,
-          },
-          cache: 'no-store',
-        });
-
-        if (versionResponse.ok) {
-          const versionData = await versionResponse.json();
-          if (versionData.success) {
-            return versionData.data;
-          }
-        }
-        return version;
-      } catch (error) {
-        console.error(`Failed to fetch version ${version.id}:`, error);
-        return version;
-      }
-    })
+  // Fetch versions directly from service layer
+  const { listVersions, getVersionById } = await import('@/services/version');
+  
+  const versionsResult = await listVersions(
+    { page: 1, limit: 100 },
+    userId
   );
+
+  if (!versionsResult.success) {
+    return (
+      <div className="container mx-auto py-6 px-4">
+        <Card className="p-6">
+          <div className="text-destructive">
+            {versionsResult.error || 'Failed to load versions'}
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  const versions = versionsResult.data.versions || [];
+
+  // Fetch full details for first 5 versions (simulation needs detailed data)
+  const versionsWithDetails: VersionWithRelations[] = [];
+  
+  for (const version of versions.slice(0, 5)) {
+    try {
+      const versionResult = await getVersionById(version.id, userId, userRole);
+      if (versionResult.success && versionResult.data) {
+        versionsWithDetails.push(serializeVersionForClient(versionResult.data));
+      }
+    } catch (error) {
+      console.error(`Failed to load version ${version.id}:`, error);
+      // Continue with other versions
+    }
+  }
 
   return (
     <AuthenticatedLayout>
       <div className="container mx-auto py-6 px-4">
-        <Suspense fallback={
-          <div className="space-y-6">
-            <Skeleton className="h-8 w-64" />
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <Skeleton className="h-screen" />
-              <Skeleton className="h-screen" />
-              <Skeleton className="h-screen" />
+        <Suspense
+          fallback={
+            <div className="space-y-6">
+              <Skeleton className="h-8 w-64" />
+              <div className="grid gap-6 md:grid-cols-3">
+                {[...Array(6)].map((_, i) => (
+                  <Skeleton key={i} className="h-96" />
+                ))}
+              </div>
             </div>
-          </div>
-        }>
-          <SimulationClient versions={versionsWithDetails} userRole={userRole} />
+          }
+        >
+          <SimulationClient versions={versionsWithDetails} />
         </Suspense>
       </div>
     </AuthenticatedLayout>
   );
 }
-

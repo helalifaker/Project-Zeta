@@ -10,7 +10,6 @@ import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { VersionWithRelations } from '@/services/version';
 import { DashboardClient } from '@/components/dashboard/DashboardClient';
-import { AuthenticatedLayout } from '@/components/layout/AuthenticatedLayout';
 import { serializeVersionForClient } from '@/lib/utils/serialize';
 
 export const revalidate = 60; // Revalidate every 60 seconds
@@ -34,24 +33,22 @@ export default async function DashboardPage(): Promise<JSX.Element> {
   if (!connectionTest.success) {
     console.error('Dashboard: Database connection failed:', connectionTest.error);
     return (
-      <AuthenticatedLayout>
-        <div className="container mx-auto py-6 px-4">
-          <Card className="p-6 border-destructive">
-            <div className="text-destructive space-y-2">
-              <p className="font-semibold">Database Connection Error</p>
-              <p className="text-sm text-muted-foreground">
-                Unable to connect to the database. Please check your connection settings.
-              </p>
-              <p className="text-xs text-muted-foreground mt-4 font-mono">
-                {connectionTest.error || 'Unknown connection error'}
-              </p>
-              <p className="text-xs text-muted-foreground mt-2">
-                Make sure DATABASE_URL is set in your .env.local file.
-              </p>
-            </div>
-          </Card>
-        </div>
-      </AuthenticatedLayout>
+      <div className="container mx-auto py-6 px-4">
+        <Card className="p-6 border-destructive">
+          <div className="text-destructive space-y-2">
+            <p className="font-semibold">Database Connection Error</p>
+            <p className="text-sm text-muted-foreground">
+              Unable to connect to the database. Please check your connection settings.
+            </p>
+            <p className="text-xs text-muted-foreground mt-4 font-mono">
+              {connectionTest.error || 'Unknown connection error'}
+            </p>
+            <p className="text-xs text-muted-foreground mt-2">
+              Make sure DATABASE_URL is set in your .env.local file.
+            </p>
+          </div>
+        </Card>
+      </div>
     );
   }
   
@@ -74,52 +71,48 @@ export default async function DashboardPage(): Promise<JSX.Element> {
     const errorStack = err instanceof Error ? err.stack : undefined;
     
     return (
-      <AuthenticatedLayout>
-        <div className="container mx-auto py-6 px-4">
-          <Card className="p-6 border-destructive">
-            <div className="text-destructive space-y-2">
-              <p className="font-semibold">Failed to load versions</p>
-              <p className="text-sm text-muted-foreground">
-                {errorMessage}
-              </p>
-              {errorStack && process.env.NODE_ENV === 'development' && (
-                <details className="mt-4">
-                  <summary className="text-xs text-muted-foreground cursor-pointer">Error details</summary>
-                  <pre className="text-xs text-muted-foreground mt-2 p-2 bg-muted rounded overflow-auto">
-                    {errorStack}
-                  </pre>
-                </details>
-              )}
-              <p className="text-xs text-muted-foreground mt-4">
-                Please check your database connection and try again.
-              </p>
-            </div>
-          </Card>
-        </div>
-      </AuthenticatedLayout>
+      <div className="container mx-auto py-6 px-4">
+        <Card className="p-6 border-destructive">
+          <div className="text-destructive space-y-2">
+            <p className="font-semibold">Failed to load versions</p>
+            <p className="text-sm text-muted-foreground">
+              {errorMessage}
+            </p>
+            {errorStack && process.env.NODE_ENV === 'development' && (
+              <details className="mt-4">
+                <summary className="text-xs text-muted-foreground cursor-pointer">Error details</summary>
+                <pre className="text-xs text-muted-foreground mt-2 p-2 bg-muted rounded overflow-auto">
+                  {errorStack}
+                </pre>
+              </details>
+            )}
+            <p className="text-xs text-muted-foreground mt-4">
+              Please check your database connection and try again.
+            </p>
+          </div>
+        </Card>
+      </div>
     );
   }
 
   if (!versionsResult.success) {
     console.error('Dashboard: listVersions returned error:', versionsResult.error, versionsResult.code);
     return (
-      <AuthenticatedLayout>
-        <div className="container mx-auto py-6 px-4">
-          <Card className="p-6 border-destructive">
-            <div className="text-destructive space-y-2">
-              <p className="font-semibold">Failed to load versions</p>
-              <p className="text-sm text-muted-foreground">
-                {versionsResult.error || 'An unexpected error occurred'}
+      <div className="container mx-auto py-6 px-4">
+        <Card className="p-6 border-destructive">
+          <div className="text-destructive space-y-2">
+            <p className="font-semibold">Failed to load versions</p>
+            <p className="text-sm text-muted-foreground">
+              {versionsResult.error || 'An unexpected error occurred'}
+            </p>
+            {versionsResult.code && (
+              <p className="text-xs text-muted-foreground">
+                Error code: {versionsResult.code}
               </p>
-              {versionsResult.code && (
-                <p className="text-xs text-muted-foreground">
-                  Error code: {versionsResult.code}
-                </p>
-              )}
-            </div>
-          </Card>
-        </div>
-      </AuthenticatedLayout>
+            )}
+          </div>
+        </Card>
+      </div>
     );
   }
 
@@ -144,23 +137,13 @@ export default async function DashboardPage(): Promise<JSX.Element> {
   }
 
   return (
-    <AuthenticatedLayout>
-      <div className="container mx-auto py-6 px-4">
-        <Suspense fallback={
-          <div className="space-y-6">
-            <Skeleton className="h-8 w-64" />
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {[...Array(4)].map((_, i) => (
-                <Skeleton key={i} className="h-32" />
-              ))}
-            </div>
-            <Skeleton className="h-96" />
-          </div>
-        }>
-          <DashboardClient versions={versionsWithDetails} />
-        </Suspense>
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <Skeleton className="h-96 w-full max-w-6xl" />
       </div>
-    </AuthenticatedLayout>
+    }>
+      <DashboardClient versions={versionsWithDetails} />
+    </Suspense>
   );
 }
 

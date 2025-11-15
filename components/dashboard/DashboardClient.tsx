@@ -7,6 +7,7 @@
 
 import dynamic from 'next/dynamic';
 import { Skeleton } from '@/components/ui/skeleton';
+import { AppHeader } from '@/components/layout/AppHeader';
 import type { VersionWithRelations } from '@/services/version';
 
 // Dynamic import for Dashboard component (includes heavy charts)
@@ -33,6 +34,13 @@ interface DashboardClientProps {
 }
 
 export function DashboardClient({ versions }: DashboardClientProps): JSX.Element {
-  return <Dashboard versions={versions} />;
+  return (
+    <div className="min-h-screen flex flex-col">
+      <AppHeader />
+      <div className="flex-1">
+        <Dashboard versions={versions} />
+      </div>
+    </div>
+  );
 }
 

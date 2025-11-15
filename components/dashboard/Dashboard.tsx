@@ -16,7 +16,6 @@ import { useFinancialCalculation } from '@/hooks/useFinancialCalculation';
 import { useDebounce } from '@/hooks/useDebounce';
 import { serializeVersionForClient } from '@/lib/utils/serialize';
 import { serializeRentPlanParametersForWorker } from '@/lib/utils/worker-serialize';
-import { startTimer } from '@/lib/utils/performance';
 import type { VersionWithRelations } from '@/services/version';
 import type { FullProjectionParams } from '@/lib/calculations/financial/projection';
 
@@ -298,11 +297,8 @@ export function Dashboard({ versions }: DashboardProps) {
 
   // Memoize projection params to avoid recalculating on every render
   const projectionParams = useMemo(() => {
-    const endTimer = startTimer('Build projection params');
     if (!selectedVersion) return null;
-    const result = versionToProjectionParams(selectedVersion);
-    endTimer();
-    return result;
+    return versionToProjectionParams(selectedVersion);
   }, [selectedVersion]);
 
   // Debounce params to prevent too many calculations (150ms for responsive UI)
@@ -313,15 +309,14 @@ export function Dashboard({ versions }: DashboardProps) {
     if (!debouncedParams) {
       setProjection(null);
       setLoading(false);
-      setError(null); // Clear error when params are cleared
+      setError(null);
       return;
     }
 
-    // Clear any previous errors before starting new calculation
     setError(null);
     setLoading(true);
     calculate(debouncedParams);
-  }, [debouncedParams, calculate, setLoading, setError, setProjection]);
+  }, [debouncedParams, calculate]);
 
   // Update store when calculation completes (optimized to reduce re-renders)
   useEffect(() => {
