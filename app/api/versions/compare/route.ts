@@ -159,7 +159,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Fetch all versions
     const versions = await Promise.all(
       versionIds.map(async (id) => {
-        const result = await getVersionById(id, session.user.id);
+        const result = await getVersionById(id, session.user.id, session.user.role);
         if (!result.success || !result.data) {
           throw new Error(`Version ${id} not found`);
         }

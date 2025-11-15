@@ -8,6 +8,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/lib/auth/config';
 import { VersionList } from '@/components/versions/VersionList';
 import { Card } from '@/components/ui/card';
+import { AuthenticatedLayout } from '@/components/layout/AuthenticatedLayout';
 
 interface VersionsPageProps {
   searchParams: Promise<{
@@ -100,14 +101,16 @@ export default async function VersionsPage({ searchParams }: VersionsPageProps) 
   }
 
   return (
-    <div className="container mx-auto py-6 px-4">
-      <Suspense fallback={<VersionsPageSkeleton />}>
-        <VersionList
-          initialVersions={data.data.versions}
-          initialPagination={data.data.pagination}
-        />
-      </Suspense>
-    </div>
+    <AuthenticatedLayout>
+      <div className="container mx-auto py-6 px-4">
+        <Suspense fallback={<VersionsPageSkeleton />}>
+          <VersionList
+            initialVersions={data.data.versions}
+            initialPagination={data.data.pagination}
+          />
+        </Suspense>
+      </div>
+    </AuthenticatedLayout>
   );
 }
 

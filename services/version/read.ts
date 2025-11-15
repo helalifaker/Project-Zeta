@@ -41,17 +41,19 @@ export interface PaginatedVersions {
  * 
  * @param id - Version ID
  * @param userId - ID of user requesting the version
+ * @param userRole - Optional role of user (ADMIN can view all versions)
  * @returns Result containing version with all relationships
  * 
  * @example
- * const result = await getVersionById(versionId, userId);
+ * const result = await getVersionById(versionId, userId, 'ADMIN');
  * if (result.success) {
  *   console.log(result.data.name);
  * }
  */
 export async function getVersionById(
   id: string,
-  userId: string
+  userId: string,
+  userRole?: string
 ): Promise<Result<VersionWithRelations>> {
   try {
     // Validate UUID format
@@ -97,13 +99,7 @@ export async function getVersionById(
     }
 
     // Authorization: users can only view their own versions (unless ADMIN viewing all)
-    // Note: This is a basic check. In production, you'd get the user's role from a session.
-    // For now, we check if the user is the creator or if they're an ADMIN.
-    // The API route will handle role checking, but we keep this as a safety check.
-    if (version.createdBy !== userId) {
-      // If userId is 'ADMIN', allow access (this is a simplified check)
-      // In real implementation, you'd pass the user's role here
-      // For now, return error and let API route handle authorization
+    if (version.createdBy !== userId && userRole !== 'ADMIN') {
       return error('Forbidden', 'FORBIDDEN');
     }
 
@@ -225,7 +221,14 @@ export async function listVersions(
     });
   } catch (err) {
     console.error('Failed to list versions:', err);
-    return error('Failed to list versions', 'INTERNAL_ERROR');
+    // Provide more detailed error message
+    const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+    const errorCode = err instanceof Prisma.PrismaClientKnownRequestError 
+      ? 'DATABASE_ERROR'
+      : err instanceof Prisma.PrismaClientInitializationError
+      ? 'DATABASE_CONNECTION_ERROR'
+      : 'INTERNAL_ERROR';
+    return error(`Failed to list versions: ${errorMessage}`, errorCode);
   }
 }
 

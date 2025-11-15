@@ -21,6 +21,7 @@ export interface UseFinancialCalculationResult {
   loading: boolean;
   error: string | null;
   calculate: (params: FullProjectionParams) => void;
+  cancel: () => void;
 }
 
 /**
@@ -48,16 +49,15 @@ export function useFinancialCalculation(): UseFinancialCalculationResult {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const workerRef = useRef<Worker | null>(null);
+  const requestIdRef = useRef<number>(0);
+  const pendingRequestRef = useRef<FullProjectionParams | null>(null);
 
-  // Initialize worker on mount
   useEffect(() => {
-    // Create worker instance
     workerRef.current = new Worker(
       new URL('@/workers/financial-engine.worker.ts', import.meta.url),
       { type: 'module' }
     );
 
-    // Handle messages from worker
     workerRef.current.onmessage = (event: MessageEvent<CalculationResponse>) => {
       setLoading(false);
 
@@ -68,16 +68,17 @@ export function useFinancialCalculation(): UseFinancialCalculationResult {
         setError(event.data.error || 'Calculation failed');
         setProjection(null);
       }
+      pendingRequestRef.current = null;
     };
 
-    // Handle errors from worker
     workerRef.current.onerror = (err) => {
+      console.error('Worker error:', err.message);
       setLoading(false);
       setError(err.message || 'Worker error');
       setProjection(null);
+      pendingRequestRef.current = null;
     };
 
-    // Cleanup: terminate worker on unmount
     return () => {
       if (workerRef.current) {
         workerRef.current.terminate();
@@ -86,22 +87,87 @@ export function useFinancialCalculation(): UseFinancialCalculationResult {
     };
   }, []);
 
-  // Calculate function
   const calculate = useCallback((params: FullProjectionParams) => {
     if (!workerRef.current) {
       setError('Worker not initialized');
       return;
     }
 
+    requestIdRef.current += 1;
+    pendingRequestRef.current = params;
+
     setLoading(true);
     setError(null);
 
-    const request: CalculationRequest = {
-      type: 'FULL_PROJECTION',
-      params,
-    };
+    // Basic validation
+    if (!params || typeof params !== 'object') {
+      setError('Invalid calculation parameters');
+      setLoading(false);
+      return;
+    }
 
-    workerRef.current.postMessage(request);
+    if (!params.curriculumPlans || !Array.isArray(params.curriculumPlans)) {
+      setError('Curriculum plans must be an array');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      // Single-pass serialization using JSON.stringify replacer
+      // This converts all Decimal objects to numbers and removes functions
+      const jsonString = JSON.stringify(params, (key, value) => {
+        // Skip null/undefined
+        if (value === null || value === undefined) {
+          return value;
+        }
+        
+        // Remove functions (including Decimal constructor)
+        if (typeof value === 'function') {
+          if (process.env.NODE_ENV === 'development') {
+            console.warn(`Removed function "${key}" from serialization`);
+          }
+          return undefined;
+        }
+        
+        // Convert Decimal objects to numbers
+        if (typeof value === 'object' && value !== null && typeof (value as any).toNumber === 'function') {
+          try {
+            const num = (value as any).toNumber();
+            return isNaN(num) || !isFinite(num) ? 0 : num;
+          } catch {
+            return 0;
+          }
+        }
+        
+        return value;
+      });
+      
+      const serializedParams = JSON.parse(jsonString) as typeof params;
+      
+      // Validate critical fields remain intact
+      if (!serializedParams.curriculumPlans || !Array.isArray(serializedParams.curriculumPlans)) {
+        throw new Error('Serialization corrupted curriculumPlans');
+      }
+
+      const request: CalculationRequest = {
+        type: 'FULL_PROJECTION',
+        params: serializedParams,
+      };
+
+      workerRef.current.postMessage(request);
+      setError(null);
+    } catch (error) {
+      console.error('Serialization error:', error);
+      setError(`Failed to serialize parameters: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setLoading(false);
+      pendingRequestRef.current = null;
+    }
+  }, []);
+
+  const cancel = useCallback(() => {
+    requestIdRef.current += 1;
+    pendingRequestRef.current = null;
+    setLoading(false);
   }, []);
 
   return {
@@ -109,6 +175,6 @@ export function useFinancialCalculation(): UseFinancialCalculationResult {
     loading,
     error,
     calculate,
+    cancel,
   };
 }
-

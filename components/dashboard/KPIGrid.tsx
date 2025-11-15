@@ -79,11 +79,34 @@ function KPIGridComponent({ projection, totalVersions, loading }: KPIGridProps) 
   }
 
   if (!kpis || !projection) {
+    // Show KPI cards with placeholder values when no projection data
     return (
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        <div className="col-span-full text-center text-muted-foreground py-8">
-          No projection data available
-        </div>
+        <KPICard
+          title="NPV (Rent)"
+          value="—"
+          description="2028-2052 period"
+        />
+        <KPICard
+          title="Avg EBITDA Margin"
+          value="—"
+          description="30-year average"
+        />
+        <KPICard
+          title="Avg Rent Load"
+          value="—"
+          description="25-year average (2028-2052)"
+        />
+        <KPICard
+          title="Total Versions"
+          value={totalVersions.toString()}
+          description="Active versions"
+        />
+        <KPICard
+          title="Breakeven Year"
+          value="—"
+          description="First positive cash flow year"
+        />
       </div>
     );
   }

@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from './providers/AuthProvider';
@@ -12,7 +12,11 @@ export const metadata: Metadata = {
   title: 'Project Zeta - Financial Planning Application',
   description:
     'World-class financial planning application for school relocation assessment (2028+)',
-  viewport: 'width=device-width, initial-scale=1',
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
 };
 
 export default function RootLayout({

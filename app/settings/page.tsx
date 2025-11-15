@@ -10,6 +10,7 @@ import { getAdminSettings } from '@/services/admin/settings';
 import { listUsers } from '@/services/admin/users';
 import { listAuditLogs } from '@/services/admin/audit';
 import { getSystemHealth } from '@/services/admin/health';
+import { AuthenticatedLayout } from '@/components/layout/AuthenticatedLayout';
 
 export default async function SettingsPage(): Promise<JSX.Element> {
   // Check authentication and role
@@ -33,23 +34,25 @@ export default async function SettingsPage(): Promise<JSX.Element> {
   ]);
 
   return (
-    <div className="container mx-auto py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-text-primary">Admin Settings</h1>
-        <p className="text-text-secondary mt-2">
-          Manage global settings, users, and monitor system health
-        </p>
-      </div>
+    <AuthenticatedLayout>
+      <div className="container mx-auto py-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-text-primary">Admin Settings</h1>
+          <p className="text-text-secondary mt-2">
+            Manage global settings, users, and monitor system health
+          </p>
+        </div>
 
-      <Settings
-        initialSettings={settingsResult.success ? settingsResult.data : null}
-        initialUsers={usersResult.success ? usersResult.data.users : []}
-        initialUsersTotal={usersResult.success ? usersResult.data.total : 0}
-        initialAuditLogs={auditLogsResult.success ? auditLogsResult.data.logs : []}
-        initialAuditLogsTotal={auditLogsResult.success ? auditLogsResult.data.total : 0}
-        initialSystemHealth={healthResult.success ? healthResult.data : null}
-      />
-    </div>
+        <Settings
+          initialSettings={settingsResult.success ? settingsResult.data : null}
+          initialUsers={usersResult.success ? usersResult.data.users : []}
+          initialUsersTotal={usersResult.success ? usersResult.data.total : 0}
+          initialAuditLogs={auditLogsResult.success ? auditLogsResult.data.logs : []}
+          initialAuditLogsTotal={auditLogsResult.success ? auditLogsResult.data.total : 0}
+          initialSystemHealth={healthResult.success ? healthResult.data : null}
+        />
+      </div>
+    </AuthenticatedLayout>
   );
 }
 

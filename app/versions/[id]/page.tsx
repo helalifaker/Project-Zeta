@@ -7,6 +7,9 @@ import { redirect, notFound } from 'next/navigation';
 import { auth } from '@/lib/auth/config';
 import { VersionDetail } from '@/components/versions/VersionDetail';
 import { Card } from '@/components/ui/card';
+import { AuthenticatedLayout } from '@/components/layout/AuthenticatedLayout';
+import { getVersionById } from '@/services/version/read';
+import { serializeVersionForClient } from '@/lib/utils/serialize';
 
 interface VersionDetailPageProps {
   params: Promise<{
@@ -23,6 +26,8 @@ export default async function VersionDetailPage({ params }: VersionDetailPagePro
   }
 
   const { id } = await params;
+  const userId = session.user.id;
+  const userRole = session.user.role;
 
   // Validate UUID format
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -30,49 +35,36 @@ export default async function VersionDetailPage({ params }: VersionDetailPagePro
     notFound();
   }
 
-  // Fetch version from API
-  const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
-  const response = await fetch(`${baseUrl}/api/versions/${id}`, {
-    headers: {
-      Cookie: `next-auth.session-token=${(session as any).token || ''}`,
-    },
-    cache: 'no-store',
-  });
+  // Fetch version using service layer (direct database access)
+  const result = await getVersionById(id, userId, userRole);
 
-  if (response.status === 404) {
-    notFound();
-  }
+  if (!result.success) {
+    if (result.code === 'NOT_FOUND') {
+      notFound();
+    }
 
-  if (!response.ok) {
     return (
-      <div className="container mx-auto py-6 px-4">
-        <Card className="p-6">
-          <div className="text-destructive">
-            Failed to load version. Please try again later.
-          </div>
-        </Card>
-      </div>
+      <AuthenticatedLayout>
+        <div className="container mx-auto py-6 px-4">
+          <Card className="p-6">
+            <div className="text-destructive">
+              {result.error || 'Failed to load version. Please try again later.'}
+            </div>
+          </Card>
+        </div>
+      </AuthenticatedLayout>
     );
   }
 
-  const data = await response.json();
-
-  if (!data.success) {
-    return (
-      <div className="container mx-auto py-6 px-4">
-        <Card className="p-6">
-          <div className="text-destructive">
-            {data.error || 'Failed to load version'}
-          </div>
-        </Card>
-      </div>
-    );
-  }
+  // Serialize version data for Client Component (convert Decimal to number)
+  const serializedVersion = serializeVersionForClient(result.data);
 
   return (
-    <div className="container mx-auto py-6 px-4">
-      <VersionDetail version={data.data} />
-    </div>
+    <AuthenticatedLayout>
+      <div className="container mx-auto py-6 px-4">
+        <VersionDetail version={serializedVersion} />
+      </div>
+    </AuthenticatedLayout>
   );
 }
 

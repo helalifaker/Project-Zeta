@@ -143,6 +143,10 @@ export function calculateFullProjection(
     } = params;
 
     // Validate inputs
+    if (!curriculumPlans || !Array.isArray(curriculumPlans)) {
+      return error('Curriculum plans must be an array');
+    }
+
     if (curriculumPlans.length === 0) {
       return error('At least one curriculum plan is required');
     }
@@ -165,6 +169,19 @@ export function calculateFullProjection(
     const revenueByCurriculum: Record<string, Array<{ year: number; revenue: Decimal }>> = {};
 
     for (const curriculumPlan of curriculumPlans) {
+      // Validate curriculum plan has required fields
+      if (!curriculumPlan.studentsProjection || !Array.isArray(curriculumPlan.studentsProjection)) {
+        return error(
+          `Curriculum plan ${curriculumPlan.curriculumType} is missing students projection data`
+        );
+      }
+
+      if (curriculumPlan.studentsProjection.length === 0) {
+        return error(
+          `Curriculum plan ${curriculumPlan.curriculumType} has empty students projection`
+        );
+      }
+
       const tuitionParams: TuitionGrowthParams = {
         tuitionBase: curriculumPlan.tuitionBase,
         cpiRate,

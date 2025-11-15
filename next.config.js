@@ -21,11 +21,9 @@ const nextConfig = {
   },
   
   // Webpack configuration for Web Workers
+  // Next.js 15 has built-in Worker support, no need for worker-loader
   webpack: (config) => {
-    config.module.rules.push({
-      test: /\.worker\.ts$/,
-      use: { loader: 'worker-loader' },
-    });
+    // Remove worker-loader configuration - Next.js 15 handles workers natively
     return config;
   },
   

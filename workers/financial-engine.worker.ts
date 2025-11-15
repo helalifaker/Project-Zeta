@@ -23,6 +23,38 @@
 import type { CalculationRequest, CalculationResponse } from './types';
 import { calculateFullProjection } from '@/lib/calculations/financial/projection';
 
+/**
+ * Recursively serialize projection result for Web Worker postMessage
+ * Converts all Decimal objects to numbers to avoid DataCloneError
+ */
+function serializeProjectionResult(data: any): any {
+  if (data === null || data === undefined) {
+    return data;
+  }
+  
+  // Convert Decimal to number
+  if (typeof data === 'object' && typeof (data as any).toNumber === 'function') {
+    return (data as any).toNumber();
+  }
+  
+  // Handle arrays
+  if (Array.isArray(data)) {
+    return data.map(item => serializeProjectionResult(item));
+  }
+  
+  // Handle objects (recursively serialize all properties)
+  if (typeof data === 'object') {
+    const serialized: any = {};
+    for (const [key, value] of Object.entries(data)) {
+      serialized[key] = serializeProjectionResult(value);
+    }
+    return serialized;
+  }
+  
+  // Primitives pass through
+  return data;
+}
+
 self.onmessage = (event: MessageEvent<CalculationRequest>) => {
   const startTime = performance.now();
 
@@ -45,9 +77,13 @@ self.onmessage = (event: MessageEvent<CalculationRequest>) => {
         return;
       }
 
+      // Serialize result data to convert Decimal objects to numbers
+      // This prevents DataCloneError when sending back to main thread
+      const serializedData = serializeProjectionResult(result.data);
+
       const response: CalculationResponse = {
         success: true,
-        data: result.data,
+        data: serializedData,
         duration,
       };
 

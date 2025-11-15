@@ -21,7 +21,12 @@ interface VersionDetailProps {
 
 function formatDate(date: Date | string): string {
   const d = typeof date === 'string' ? new Date(date) : date;
-  return d.toLocaleDateString();
+  // Use consistent format to avoid hydration mismatches
+  // Format: DD/MM/YYYY (consistent across server and client)
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  return `${day}/${month}/${year}`;
 }
 
 export function VersionDetail({ version }: VersionDetailProps) {

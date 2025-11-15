@@ -16,7 +16,7 @@ import { useComparisonStore } from '@/stores/comparison-store';
 import { useFinancialCalculation } from '@/hooks/useFinancialCalculation';
 import type { VersionWithRelations } from '@/services/version';
 import type { FullProjectionParams } from '@/lib/calculations/financial/projection';
-import { toDecimal } from '@/lib/calculations/decimal-helpers';
+import { toWorkerNumber, serializeRentPlanParametersForWorker } from '@/lib/utils/worker-serialize';
 
 interface CompareProps {
   versions: VersionWithRelations[];
@@ -46,26 +46,26 @@ function versionToProjectionParams(version: VersionWithRelations): FullProjectio
     ibPlan.studentsProjection as Array<{ year: number; students: number }>
   ).map((sp) => ({ year: sp.year, students: sp.students }));
 
+  // Use numbers instead of Decimal objects for Web Worker serialization
   const adminSettings = {
-    cpiRate: toDecimal(0.03),
-    discountRate: toDecimal(0.08),
-    taxRate: toDecimal(0.20),
+    cpiRate: 0.03,
+    discountRate: 0.08,
+    taxRate: 0.20,
   };
 
-  const staffCostBase = toDecimal(15_000_000);
+  const staffCostBase = 15_000_000;
   const staffCostCpiFrequency: 1 | 2 | 3 = 2;
 
   const capexItems = version.capexItems.map((item) => ({
     year: item.year,
-    amount: toDecimal(item.amount),
+    amount: toWorkerNumber(item.amount) ?? 0,
   }));
 
   const opexSubAccounts = version.opexSubAccounts.map((account) => ({
     subAccountName: account.subAccountName,
-    percentOfRevenue:
-      account.percentOfRevenue !== null ? toDecimal(account.percentOfRevenue) : null,
+    percentOfRevenue: toWorkerNumber(account.percentOfRevenue),
     isFixed: account.isFixed,
-    fixedAmount: account.fixedAmount !== null ? toDecimal(account.fixedAmount) : null,
+    fixedAmount: toWorkerNumber(account.fixedAmount),
   }));
 
   return {
@@ -73,21 +73,21 @@ function versionToProjectionParams(version: VersionWithRelations): FullProjectio
       {
         curriculumType: 'FR',
         capacity: frPlan.capacity,
-        tuitionBase: toDecimal(frPlan.tuitionBase),
+        tuitionBase: toWorkerNumber(frPlan.tuitionBase) ?? 0,
         cpiFrequency: frPlan.cpiFrequency as 1 | 2 | 3,
         studentsProjection: frStudentsProjection,
       },
       {
         curriculumType: 'IB',
         capacity: ibPlan.capacity,
-        tuitionBase: toDecimal(ibPlan.tuitionBase),
+        tuitionBase: toWorkerNumber(ibPlan.tuitionBase) ?? 0,
         cpiFrequency: ibPlan.cpiFrequency as 1 | 2 | 3,
         studentsProjection: ibStudentsProjection,
       },
     ],
     rentPlan: {
       rentModel: version.rentPlan.rentModel as 'FIXED_ESCALATION' | 'REVENUE_SHARE' | 'PARTNER_MODEL',
-      parameters: version.rentPlan.parameters as Record<string, unknown>,
+      parameters: serializeRentPlanParametersForWorker(version.rentPlan.parameters as Record<string, unknown>),
     },
     staffCostBase,
     staffCostCpiFrequency,

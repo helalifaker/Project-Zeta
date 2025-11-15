@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import type { CreateVersionInput } from '@/lib/validation/version';
-import { VersionMode } from '@prisma/client';
+import { VersionMode, CurriculumType, RentModel } from '@prisma/client';
 import { ArrowLeft } from 'lucide-react';
 
 interface VersionFormProps {
@@ -56,17 +56,43 @@ export function VersionForm({ initialData, onSubmit }: VersionFormProps) {
       return;
     }
 
+    // Create default curriculum plans (FR and IB) with minimal valid data
+    // These will be configured in detail after creation
+    const defaultCurriculumPlans = [
+      {
+        curriculumType: CurriculumType.FR,
+        capacity: 400, // Default capacity
+        tuitionBase: 50000, // Default base tuition (SAR)
+        cpiFrequency: 2, // CPI every 2 years
+        studentsProjection: Array.from({ length: 30 }, (_, i) => ({
+          year: 2023 + i,
+          students: 0, // Will be configured later
+        })),
+      },
+      {
+        curriculumType: CurriculumType.IB,
+        capacity: 200, // Default capacity
+        tuitionBase: 60000, // Default base tuition (SAR)
+        cpiFrequency: 2, // CPI every 2 years
+        studentsProjection: Array.from({ length: 30 }, (_, i) => ({
+          year: 2023 + i,
+          students: 0, // Will be configured later
+        })),
+      },
+    ];
+
+    // Create default rent plan with valid parameters
     const formData: CreateVersionInput = {
       name,
       description: description || undefined,
       mode,
-      curriculumPlans: [], // Will be configured later
+      curriculumPlans: defaultCurriculumPlans,
       rentPlan: {
-        rentModel: 'FIXED_ESCALATION',
+        rentModel: RentModel.FIXED_ESCALATION,
         parameters: {
-          baseRent: 0,
-          escalationRate: 0,
-          startYear: 2028,
+          baseRent: 1000000, // Default 1M SAR (must be positive)
+          escalationRate: 0.03, // Default 3% escalation
+          startYear: 2028, // Start year for rent model
         },
       },
     };

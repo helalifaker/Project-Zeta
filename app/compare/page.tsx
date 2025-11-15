@@ -5,23 +5,12 @@
 
 import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
-import dynamic from 'next/dynamic';
 import { auth } from '@/lib/auth/config';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { VersionWithRelations } from '@/services/version';
-
-// Dynamic import for Compare component (includes heavy comparison charts)
-const Compare = dynamic(() => import('@/components/compare/Compare').then(mod => ({ default: mod.Compare })), {
-  loading: () => (
-    <div className="space-y-6">
-      <Skeleton className="h-8 w-64" />
-      <Skeleton className="h-96" />
-      <Skeleton className="h-96" />
-    </div>
-  ),
-  ssr: false, // Client-side only since it uses Web Workers
-});
+import { CompareClient } from '@/components/compare/CompareClient';
+import { AuthenticatedLayout } from '@/components/layout/AuthenticatedLayout';
 
 export const revalidate = 60; // Revalidate every 60 seconds
 
@@ -96,17 +85,19 @@ export default async function ComparePage(): Promise<JSX.Element> {
   );
 
   return (
-    <div className="container mx-auto py-6 px-4">
-      <Suspense fallback={
-        <div className="space-y-6">
-          <Skeleton className="h-8 w-64" />
-          <Skeleton className="h-96" />
-          <Skeleton className="h-96" />
-        </div>
-      }>
-        <Compare versions={versionsWithDetails} />
-      </Suspense>
-    </div>
+    <AuthenticatedLayout>
+      <div className="container mx-auto py-6 px-4">
+        <Suspense fallback={
+          <div className="space-y-6">
+            <Skeleton className="h-8 w-64" />
+            <Skeleton className="h-96" />
+            <Skeleton className="h-96" />
+          </div>
+        }>
+          <CompareClient versions={versionsWithDetails} />
+        </Suspense>
+      </div>
+    </AuthenticatedLayout>
   );
 }
 

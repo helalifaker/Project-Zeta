@@ -64,6 +64,15 @@ export function calculateRevenue(
   try {
     const { tuitionByYear, studentsByYear } = params;
 
+    // Validate inputs exist and are arrays
+    if (!tuitionByYear || !Array.isArray(tuitionByYear)) {
+      return error('Tuition data must be an array');
+    }
+
+    if (!studentsByYear || !Array.isArray(studentsByYear)) {
+      return error('Students data must be an array');
+    }
+
     if (tuitionByYear.length === 0) {
       return error('Tuition data is required');
     }

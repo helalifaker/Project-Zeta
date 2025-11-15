@@ -5,26 +5,12 @@
 
 import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
-import dynamic from 'next/dynamic';
 import { auth } from '@/lib/auth/config';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { VersionWithRelations } from '@/services/version';
-
-// Dynamic import for TuitionSimulator component (includes heavy charts and calculations)
-const TuitionSimulator = dynamic(() => import('@/components/tuition-simulator/TuitionSimulator').then(mod => ({ default: mod.TuitionSimulator })), {
-  loading: () => (
-    <div className="space-y-6">
-      <Skeleton className="h-8 w-64" />
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Skeleton className="h-screen" />
-        <Skeleton className="h-screen" />
-        <Skeleton className="h-screen" />
-      </div>
-    </div>
-  ),
-  ssr: false, // Client-side only since it uses Web Workers
-});
+import { TuitionSimulatorClient } from '@/components/tuition-simulator/TuitionSimulatorClient';
+import { AuthenticatedLayout } from '@/components/layout/AuthenticatedLayout';
 
 export const revalidate = 60; // Revalidate every 60 seconds
 
@@ -99,20 +85,22 @@ export default async function TuitionSimulatorPage(): Promise<JSX.Element> {
   );
 
   return (
-    <div className="container mx-auto py-6 px-4">
-      <Suspense fallback={
-        <div className="space-y-6">
-          <Skeleton className="h-8 w-64" />
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <Skeleton className="h-screen" />
-            <Skeleton className="h-screen" />
-            <Skeleton className="h-screen" />
+    <AuthenticatedLayout>
+      <div className="container mx-auto py-6 px-4">
+        <Suspense fallback={
+          <div className="space-y-6">
+            <Skeleton className="h-8 w-64" />
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <Skeleton className="h-screen" />
+              <Skeleton className="h-screen" />
+              <Skeleton className="h-screen" />
+            </div>
           </div>
-        </div>
-      }>
-        <TuitionSimulator versions={versionsWithDetails} />
-      </Suspense>
-    </div>
+        }>
+          <TuitionSimulatorClient versions={versionsWithDetails} />
+        </Suspense>
+      </div>
+    </AuthenticatedLayout>
   );
 }
 

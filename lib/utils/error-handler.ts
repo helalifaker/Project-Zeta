@@ -4,7 +4,8 @@
  */
 
 import { Prisma } from '@prisma/client';
-import { Result, error } from '@/types/result';
+import type { Result } from '@/types/result';
+import { error } from '@/types/result';
 
 /**
  * Check if error is a database timeout

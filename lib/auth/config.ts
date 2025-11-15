@@ -19,16 +19,26 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
+          console.error('Auth: Missing credentials');
           return null;
         }
 
         try {
+          // Test database connection first
+          await prisma.$connect();
+          
           // Find user by email
           const user = await prisma.user.findUnique({
             where: { email: credentials.email as string },
           });
 
-          if (!user || !user.password) {
+          if (!user) {
+            console.error('Auth: User not found:', credentials.email);
+            return null;
+          }
+
+          if (!user.password) {
+            console.error('Auth: User has no password:', credentials.email);
             return null;
           }
 
@@ -39,8 +49,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           );
 
           if (!isValid) {
+            console.error('Auth: Invalid password for:', credentials.email);
             return null;
           }
+
+          console.log('Auth: Successfully authenticated:', credentials.email);
 
           // Return user object (will be available in session)
           return {
@@ -52,6 +65,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           };
         } catch (error) {
           console.error('Auth error:', error);
+          if (error instanceof Error) {
+            console.error('Auth error details:', {
+              message: error.message,
+              stack: error.stack,
+              name: error.name,
+            });
+            
+            // Check if it's a database connection error
+            if (error.message.includes('DATABASE_URL') || error.message.includes('connection')) {
+              console.error('Auth: Database connection error - check DATABASE_URL in .env.local');
+            }
+          }
           return null;
         }
       },

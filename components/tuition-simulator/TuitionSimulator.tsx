@@ -15,7 +15,7 @@ import { useTuitionSimulatorStore } from '@/stores/tuition-simulator-store';
 import { useFinancialCalculation } from '@/hooks/useFinancialCalculation';
 import type { VersionWithRelations } from '@/services/version';
 import type { FullProjectionParams } from '@/lib/calculations/financial/projection';
-import { toDecimal } from '@/lib/calculations/decimal-helpers';
+import { toWorkerNumber, serializeRentPlanParametersForWorker } from '@/lib/utils/worker-serialize';
 
 interface TuitionSimulatorProps {
   versions: VersionWithRelations[];
@@ -44,11 +44,11 @@ function buildProjectionParams(
     return null;
   }
 
-  // Calculate adjusted tuition bases
-  const frBaseTuition = toDecimal(frPlan.tuitionBase);
-  const ibBaseTuition = toDecimal(ibPlan.tuitionBase);
-  const adjustedFrTuition = frBaseTuition.times(1 + tuitionAdjustments.fr / 100);
-  const adjustedIbTuition = ibBaseTuition.times(1 + tuitionAdjustments.ib / 100);
+  // Calculate adjusted tuition bases - convert to numbers for Web Worker
+  const frBaseTuition = toWorkerNumber(frPlan.tuitionBase) ?? 0;
+  const ibBaseTuition = toWorkerNumber(ibPlan.tuitionBase) ?? 0;
+  const adjustedFrTuition = frBaseTuition * (1 + tuitionAdjustments.fr / 100);
+  const adjustedIbTuition = ibBaseTuition * (1 + tuitionAdjustments.ib / 100);
 
   // Use enrollment projections from simulator (fallback to version's original if empty)
   const frStudentsProjection =
@@ -60,30 +60,29 @@ function buildProjectionParams(
       ? enrollmentProjections.ib
       : (ibPlan.studentsProjection as Array<{ year: number; students: number }>);
 
-  // Default admin settings
+  // Default admin settings - use numbers for Web Worker
   const adminSettings = {
-    cpiRate: toDecimal(0.03),
-    discountRate: toDecimal(0.08),
-    taxRate: toDecimal(0.20),
+    cpiRate: 0.03,
+    discountRate: 0.08,
+    taxRate: 0.20,
   };
 
-  // Default staff cost
-  const staffCostBase = toDecimal(15_000_000);
+  // Default staff cost - use numbers for Web Worker
+  const staffCostBase = 15_000_000;
   const staffCostCpiFrequency: 1 | 2 | 3 = 2;
 
-  // Transform capex items
+  // Transform capex items - use numbers for Web Worker
   const capexItems = version.capexItems.map((item) => ({
     year: item.year,
-    amount: toDecimal(item.amount),
+    amount: toWorkerNumber(item.amount) ?? 0,
   }));
 
-  // Transform opex sub-accounts
+  // Transform opex sub-accounts - use numbers for Web Worker
   const opexSubAccounts = version.opexSubAccounts.map((account) => ({
     subAccountName: account.subAccountName,
-    percentOfRevenue:
-      account.percentOfRevenue !== null ? toDecimal(account.percentOfRevenue) : null,
+    percentOfRevenue: toWorkerNumber(account.percentOfRevenue),
     isFixed: account.isFixed,
-    fixedAmount: account.fixedAmount !== null ? toDecimal(account.fixedAmount) : null,
+    fixedAmount: toWorkerNumber(account.fixedAmount),
   }));
 
   return {
@@ -105,7 +104,7 @@ function buildProjectionParams(
     ],
     rentPlan: {
       rentModel: version.rentPlan.rentModel as 'FIXED_ESCALATION' | 'REVENUE_SHARE' | 'PARTNER_MODEL',
-      parameters: version.rentPlan.parameters as Record<string, unknown>,
+      parameters: serializeRentPlanParametersForWorker(version.rentPlan.parameters as Record<string, unknown>),
     },
     staffCostBase,
     staffCostCpiFrequency,

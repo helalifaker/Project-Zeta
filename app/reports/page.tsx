@@ -5,21 +5,11 @@
 
 import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
-import dynamic from 'next/dynamic';
 import { auth } from '@/lib/auth/config';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-
-// Dynamic import for Reports component (includes PDF/Excel generation)
-const Reports = dynamic(() => import('@/components/reports/Reports').then(mod => ({ default: mod.Reports })), {
-  loading: () => (
-    <div className="space-y-6">
-      <Skeleton className="h-8 w-64" />
-      <Skeleton className="h-96" />
-    </div>
-  ),
-  ssr: false, // Client-side only
-});
+import { ReportsClient } from '@/components/reports/ReportsClient';
+import { AuthenticatedLayout } from '@/components/layout/AuthenticatedLayout';
 
 export const revalidate = 60; // Revalidate every 60 seconds
 
@@ -93,21 +83,23 @@ export default async function ReportsPage(): Promise<JSX.Element> {
   const userRole = (session.user as { role?: string }).role || 'VIEWER';
 
   return (
-    <div className="container mx-auto py-6 px-4">
-      <Suspense fallback={
-        <div className="space-y-6">
-          <Skeleton className="h-8 w-64" />
-          <Skeleton className="h-96" />
-        </div>
-      }>
-        <Reports
-          initialReports={reports}
-          initialPagination={pagination}
-          versions={versions}
-          userRole={userRole}
-        />
-      </Suspense>
-    </div>
+    <AuthenticatedLayout>
+      <div className="container mx-auto py-6 px-4">
+        <Suspense fallback={
+          <div className="space-y-6">
+            <Skeleton className="h-8 w-64" />
+            <Skeleton className="h-96" />
+          </div>
+        }>
+          <ReportsClient
+            initialReports={reports}
+            initialPagination={pagination}
+            versions={versions}
+            userRole={userRole}
+          />
+        </Suspense>
+      </div>
+    </AuthenticatedLayout>
   );
 }
 

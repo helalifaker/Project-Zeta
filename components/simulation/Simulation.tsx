@@ -15,7 +15,7 @@ import { useSimulationStore } from '@/stores/simulation-store';
 import { useFinancialCalculation } from '@/hooks/useFinancialCalculation';
 import type { VersionWithRelations } from '@/services/version';
 import type { FullProjectionParams } from '@/lib/calculations/financial/projection';
-import { toDecimal } from '@/lib/calculations/decimal-helpers';
+import { toWorkerNumber } from '@/lib/utils/worker-serialize';
 
 interface SimulationProps {
   versions: VersionWithRelations[];
@@ -30,19 +30,18 @@ function buildProjectionParams(
 ): FullProjectionParams | null {
   if (!parameters) return null;
 
-  // Transform opex sub-accounts
+  // Transform opex sub-accounts - use numbers for Web Worker
   const opexSubAccounts = parameters.opex.subAccounts.map((account) => ({
     subAccountName: account.subAccountName,
-    percentOfRevenue:
-      account.percentOfRevenue !== null ? toDecimal(account.percentOfRevenue) : null,
+    percentOfRevenue: toWorkerNumber(account.percentOfRevenue),
     isFixed: account.isFixed,
-    fixedAmount: account.fixedAmount !== null ? toDecimal(account.fixedAmount) : null,
+    fixedAmount: toWorkerNumber(account.fixedAmount),
   }));
 
-  // Transform capex items
+  // Transform capex items - use numbers for Web Worker
   const capexItems = parameters.capex.items.map((item) => ({
     year: item.year,
-    amount: toDecimal(item.amount),
+    amount: toWorkerNumber(item.amount) ?? 0,
   }));
 
   return {
@@ -50,14 +49,14 @@ function buildProjectionParams(
       {
         curriculumType: parameters.curriculum.fr.curriculumType,
         capacity: parameters.curriculum.fr.capacity,
-        tuitionBase: toDecimal(parameters.curriculum.fr.tuitionBase),
+        tuitionBase: toWorkerNumber(parameters.curriculum.fr.tuitionBase) ?? 0,
         cpiFrequency: parameters.curriculum.fr.cpiFrequency,
         studentsProjection: parameters.curriculum.fr.studentsProjection,
       },
       {
         curriculumType: parameters.curriculum.ib.curriculumType,
         capacity: parameters.curriculum.ib.capacity,
-        tuitionBase: toDecimal(parameters.curriculum.ib.tuitionBase),
+        tuitionBase: toWorkerNumber(parameters.curriculum.ib.tuitionBase) ?? 0,
         cpiFrequency: parameters.curriculum.ib.cpiFrequency,
         studentsProjection: parameters.curriculum.ib.studentsProjection,
       },
@@ -66,14 +65,14 @@ function buildProjectionParams(
       rentModel: parameters.rent.rentModel,
       parameters: parameters.rent.parameters,
     },
-    staffCostBase: toDecimal(parameters.staffing.baseStaffCost),
+    staffCostBase: toWorkerNumber(parameters.staffing.baseStaffCost) ?? 0,
     staffCostCpiFrequency: parameters.staffing.cpiFrequency,
     capexItems,
     opexSubAccounts,
     adminSettings: {
-      cpiRate: toDecimal(parameters.admin.cpiRate),
-      discountRate: toDecimal(parameters.admin.discountRate),
-      taxRate: toDecimal(parameters.admin.taxRate),
+      cpiRate: toWorkerNumber(parameters.admin.cpiRate) ?? 0.03,
+      discountRate: toWorkerNumber(parameters.admin.discountRate) ?? 0.08,
+      taxRate: toWorkerNumber(parameters.admin.taxRate) ?? 0.20,
     },
     startYear: 2023,
     endYear: 2052,

@@ -45,9 +45,13 @@ export function VersionSelector({ versions, loading }: VersionSelectorProps) {
     );
   }
 
+  // Always provide a value to keep the Select controlled
+  // Use empty string as default if no version is selected
+  const selectValue = selectedVersionId || '';
+
   return (
     <Select
-      {...(selectedVersionId && { value: selectedVersionId })}
+      value={selectValue}
       onValueChange={(value) => {
         setSelectedVersionId(value);
       }}

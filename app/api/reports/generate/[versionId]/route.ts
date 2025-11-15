@@ -38,6 +38,7 @@ export async function POST(
     }
 
     const userId = session.user.id;
+    const userRole = session.user.role;
 
     // Validate request body
     const body = await req.json();
@@ -60,7 +61,7 @@ export async function POST(
     const { versionId } = await params;
 
     // Fetch version data
-    const versionResult = await getVersionById(versionId, userId);
+    const versionResult = await getVersionById(versionId, userId, userRole);
 
     if (!versionResult.success) {
       return NextResponse.json(

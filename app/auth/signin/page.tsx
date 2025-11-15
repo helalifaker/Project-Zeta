@@ -41,8 +41,17 @@ function SignInForm(): JSX.Element {
         redirect: false,
       });
 
+      console.log('Sign-in result:', result);
+
       if (result?.error) {
-        setError('Invalid email or password');
+        console.error('Sign-in error:', result.error);
+        setError(result.error === 'CredentialsSignin' ? 'Invalid email or password' : result.error);
+        setLoading(false);
+        return;
+      }
+
+      if (!result?.ok) {
+        setError('Sign-in failed. Please try again.');
         setLoading(false);
         return;
       }
