@@ -37,7 +37,10 @@ export function VersionSelector({ versions, loading }: VersionSelectorProps) {
     return <Skeleton className="h-10 w-[200px]" />;
   }
 
-  if (versions.length === 0) {
+  // Filter out versions with empty/invalid IDs (prevents Select.Item error)
+  const validVersions = versions.filter(v => v && v.id && v.id.trim() !== '');
+
+  if (validVersions.length === 0) {
     return (
       <div className="text-sm text-muted-foreground">
         No versions available
@@ -46,21 +49,23 @@ export function VersionSelector({ versions, loading }: VersionSelectorProps) {
   }
 
   // Always provide a value to keep the Select controlled
-  // Use empty string as default if no version is selected
-  const selectValue = selectedVersionId || '';
+  // Use first valid version ID if none selected, or empty string as fallback
+  const selectValue = selectedVersionId || validVersions[0]?.id || '';
 
   return (
     <Select
       value={selectValue}
       onValueChange={(value) => {
-        setSelectedVersionId(value);
+        if (value) {
+          setSelectedVersionId(value);
+        }
       }}
     >
       <SelectTrigger className="w-[250px]">
         <SelectValue placeholder="Select a version" />
       </SelectTrigger>
       <SelectContent>
-        {versions.map((version) => (
+        {validVersions.map((version) => (
           <SelectItem key={version.id} value={version.id}>
             {version.name}
           </SelectItem>

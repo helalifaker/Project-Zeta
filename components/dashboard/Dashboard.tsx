@@ -239,14 +239,17 @@ export function Dashboard({ versions }: DashboardProps) {
     }
   }, [cacheInitialized, versions]);
 
-  // Initialize store with versions
+  // Initialize store with versions (only on mount or when versions change)
   useEffect(() => {
     setVersions(versions as any[]);
-    if (versions.length > 0 && !selectedVersionId && versions[0]) {
+  }, [versions, setVersions]);
+
+  // Set initial selected version (only once, when versions first load)
+  useEffect(() => {
+    if (versions.length > 0 && !selectedVersionId && versions[0]?.id) {
       setSelectedVersionId(versions[0].id);
     }
-  }, [versions, selectedVersionId]);
-  // Note: Zustand setters are stable
+  }, [versions.length]); // Only depend on array length, not selectedVersionId
 
   // Get selected version from cache or initial versions
   const selectedVersion = useMemo(() => {

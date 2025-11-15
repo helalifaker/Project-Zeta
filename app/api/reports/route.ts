@@ -24,7 +24,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }
 
     const userId = session.user.id;
-    const userRole = (session.user as { role?: string }).role;
+    const userRole = session.user.role || 'VIEWER'; // Default to VIEWER if role not found
 
     // Parse query parameters
     const { searchParams } = new URL(req.url);
