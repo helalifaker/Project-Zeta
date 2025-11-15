@@ -7,7 +7,7 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth/config';
 import { prisma } from '@/lib/db/prisma';
-import { Prisma, type ReportType, type ReportFormat } from '@prisma/client';
+import { Prisma, ReportType, ReportFormat } from '@prisma/client';
 import { ListReportsSchema } from '@/lib/validation/report';
 import { getCacheHeaders } from '@/lib/cache/revalidate';
 
@@ -44,9 +44,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       format: searchParams.get('format') || undefined,
     };
 
+    console.log('Reports API: Query params:', query);
+    
     const validation = ListReportsSchema.safeParse(query);
 
     if (!validation.success) {
+      console.error('Reports API: Validation failed:', validation.error);
       return NextResponse.json(
         {
           success: false,
@@ -59,6 +62,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }
 
     const { page, limit, versionId, reportType, format } = validation.data;
+    console.log('Reports API: Validated params:', { page, limit, versionId, reportType, format });
 
     // Build where clause
     const where: Prisma.ReportWhereInput = {
@@ -74,11 +78,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       where.versionId = versionId;
     }
 
-    if (reportType) {
+    if (reportType && Object.values(ReportType).includes(reportType as ReportType)) {
       where.reportType = reportType as ReportType;
     }
 
-    if (format) {
+    if (format && Object.values(ReportFormat).includes(format as ReportFormat)) {
       where.format = format as ReportFormat;
     }
 

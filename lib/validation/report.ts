@@ -20,9 +20,9 @@ export const GenerateReportSchema = z.object({
 export const ListReportsSchema = z.object({
   page: z.number().int().positive().default(1),
   limit: z.number().int().positive().max(100).default(20),
-  versionId: z.string().uuid().optional(),
-  reportType: z.nativeEnum(ReportType).optional(),
-  format: z.nativeEnum(ReportFormat).optional(),
+  versionId: z.string().uuid().optional().or(z.undefined()),
+  reportType: z.string().optional().or(z.undefined()), // Allow any string, validate later
+  format: z.string().optional().or(z.undefined()), // Allow any string, validate later
 });
 
 export type GenerateReportInput = z.infer<typeof GenerateReportSchema>;
