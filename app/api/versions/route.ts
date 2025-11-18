@@ -40,6 +40,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const search = searchParams.get('search');
     const sortBy = searchParams.get('sortBy') || 'createdAt';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
+    const lightweight = searchParams.get('lightweight') === 'true'; // Fast mode: only id, name, status, mode
 
     // Validate pagination
     if (page < 1) {
@@ -50,7 +51,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     // Build where clause
-    const where: Prisma.VersionWhereInput = {
+    const where: Prisma.versionsWhereInput = {
       createdBy: authResult.data.id, // Users can only see their own versions
     };
 
@@ -75,52 +76,122 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // Validate sortBy
     const validSortFields = ['name', 'createdAt', 'updatedAt'];
     const sortField = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
-    const orderBy: Prisma.VersionOrderByWithRelationInput = {
+    const orderBy: Prisma.versionsOrderByWithRelationInput = {
       [sortField]: sortOrder === 'asc' ? 'asc' : 'desc',
     };
 
-    // Count total matching records
-    const total = await prisma.version.count({ where });
+    // Lightweight mode: skip count and includes for speed
+    let total: number;
+    let versions: any[];
 
-    // Fetch versions
-    const versions = await prisma.version.findMany({
-      where,
-      orderBy,
-      skip: (page - 1) * limit,
-      take: limit,
-      include: {
-        creator: {
-          select: {
-            id: true,
-            email: true,
-            name: true,
+    if (lightweight) {
+      // Ultra-fast path: simplified query, no complex sorting
+      // Use id-based ordering (fastest) instead of createdAt
+      const queryStart = performance.now();
+      versions = await prisma.versions.findMany({
+        where: {
+          createdBy: authResult.data.id, // Only filter by user (indexed)
+          // Skip other filters for speed in lightweight mode
+        },
+        orderBy: {
+          id: 'desc', // Use id (primary key, always indexed) instead of createdAt
+        },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          mode: true,
+        },
+      });
+      const queryTime = performance.now() - queryStart;
+      
+      // Log performance (query time only - network latency is separate)
+      // Note: Total request time includes network latency to Supabase (ap-southeast-2)
+      // Expected network latency: 1000-1500ms for cross-region connections
+      if (queryTime > 100) {
+        console.warn(`⚠️ Query execution slow: ${queryTime.toFixed(0)}ms (target: <100ms)`);
+      }
+      
+      // Estimate total (don't count for speed)
+      total = versions.length === limit ? (page * limit) + 1 : (page - 1) * limit + versions.length;
+    } else {
+      // Full mode: count and includes
+      total = await prisma.versions.count({ where });
+
+      versions = await prisma.versions.findMany({
+        where,
+        orderBy,
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          users: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+            },
+          },
+          versions: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          _count: {
+            select: {
+              curriculum_plans: true,
+              other_versions: true,
+            },
           },
         },
-        basedOn: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        _count: {
-          select: {
-            curriculumPlans: true,
-            derivatives: true,
-          },
-        },
-      },
+      });
+    }
+
+    // Map Prisma snake_case relation names to camelCase field names expected by client
+    const mappedVersions = versions.map((version: any) => {
+      const mapped: any = { ...version };
+      
+      // Map relation names: users -> creator, versions -> basedOn
+      // Always set creator (even if null) to ensure field exists
+      mapped.creator = mapped.users || null;
+      delete mapped.users;
+      
+      // Always set basedOn (even if null) to ensure field exists
+      mapped.basedOn = mapped.versions || null;
+      delete mapped.versions;
+      
+      // Map _count field names: curriculum_plans -> curriculumPlans, other_versions -> derivatives
+      if (mapped._count) {
+        mapped._count = {
+          curriculumPlans: mapped._count.curriculum_plans || 0,
+          derivatives: mapped._count.other_versions || 0,
+        };
+      } else {
+        // Ensure _count exists even if not included
+        mapped._count = {
+          curriculumPlans: 0,
+          derivatives: 0,
+        };
+      }
+      
+      return mapped;
     });
 
-    // Add cache headers for GET requests (cache for 60 seconds)
+    // Add cache headers for GET requests
+    // Lightweight requests: aggressive caching (5 minutes) since they don't change often
+    // Full requests: shorter cache (60 seconds) since they include more data
+    const cacheTime = lightweight ? 300 : 60; // 5 minutes for lightweight, 1 minute for full
     const headers = {
-      'Cache-Control': getCacheHeaders(60, 300),
+      'Cache-Control': getCacheHeaders(cacheTime, cacheTime * 2),
     };
 
     return NextResponse.json(
       {
         success: true,
         data: {
-          versions,
+          versions: mappedVersions,
           pagination: {
             page,
             limit,
@@ -197,13 +268,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const data = validation.data;
 
-    // Validate curriculum plans have both FR and IB
+    // Validate curriculum plans: FR is required, IB is optional
     const curriculumTypes = data.curriculumPlans.map((cp) => cp.curriculumType);
-    if (!curriculumTypes.includes('FR') || !curriculumTypes.includes('IB')) {
+    if (!curriculumTypes.includes('FR')) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Must include both FR and IB curriculum plans',
+          error: 'FR curriculum plan is required',
+          code: 'VALIDATION_ERROR',
+        },
+        { status: 400 }
+      );
+    }
+
+    // IB is optional - check for duplicates if present
+    const ibCount = curriculumTypes.filter(t => t === 'IB').length;
+    if (ibCount > 1) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'IB curriculum plan can only appear once',
           code: 'VALIDATION_ERROR',
         },
         { status: 400 }
@@ -211,7 +295,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // Check for duplicate name (unique per user)
-    const existingVersion = await prisma.version.findUnique({
+    const existingVersion = await prisma.versions.findUnique({
       where: {
         name_createdBy: {
           name: data.name,
@@ -234,7 +318,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Create version with all relationships in a transaction
     const version = await prisma.$transaction(async (tx) => {
       // 1. Create version
-      const newVersion = await tx.version.create({
+      const newVersion = await tx.versions.create({
         data: {
           name: data.name,
           ...(data.description !== undefined && { description: data.description }),
@@ -246,7 +330,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
 
       // 2. Create curriculum plans
-      await tx.curriculumPlan.createMany({
+      await tx.curriculum_plans.createMany({
         data: data.curriculumPlans.map((cp) => ({
           versionId: newVersion.id,
           curriculumType: cp.curriculumType,
@@ -258,7 +342,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
 
       // 3. Create rent plan
-      await tx.rentPlan.create({
+      await tx.rent_plans.create({
         data: {
           versionId: newVersion.id,
           rentModel: data.rentPlan.rentModel,
@@ -266,11 +350,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         },
       });
 
+      // 4. Create default capex rules (one per category, base costs default to 0)
+      const { CapexCategory } = await import('@prisma/client');
+      await tx.capex_rules.createMany({
+        data: [
+          { versionId: newVersion.id, category: CapexCategory.BUILDING, cycleYears: 20, baseCost: 0, startingYear: 2028, inflationIndex: null },
+          { versionId: newVersion.id, category: CapexCategory.TECHNOLOGY, cycleYears: 4, baseCost: 0, startingYear: 2028, inflationIndex: null },
+          { versionId: newVersion.id, category: CapexCategory.EQUIPMENT, cycleYears: 7, baseCost: 0, startingYear: 2028, inflationIndex: null },
+          { versionId: newVersion.id, category: CapexCategory.FURNITURE, cycleYears: 7, baseCost: 0, startingYear: 2028, inflationIndex: null },
+          { versionId: newVersion.id, category: CapexCategory.VEHICLES, cycleYears: 10, baseCost: 0, startingYear: 2028, inflationIndex: null },
+        ],
+      });
+
       return newVersion;
     });
 
     // Fetch created version with relationships
-    const createdVersion = await prisma.version.findUnique({
+    const createdVersion = await prisma.versions.findUnique({
       where: { id: version.id },
       include: {
         curriculumPlans: true,

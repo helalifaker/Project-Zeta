@@ -47,7 +47,15 @@ export function calculateTuitionForYear(
     const base = toDecimal(tuitionBase);
     const rate = toDecimal(cpiRate);
 
-    // Validate inputs
+    // Validate inputs - check for NaN first
+    if (base.isNaN()) {
+      return error('Base tuition is invalid (NaN)');
+    }
+
+    if (rate.isNaN()) {
+      return error('CPI rate is invalid (NaN)');
+    }
+
     if (base.isNegative() || base.isZero()) {
       return error('Base tuition must be positive');
     }
@@ -73,7 +81,18 @@ export function calculateTuitionForYear(
 
     // Calculate: tuition_base × (1 + cpi_rate)^period
     const escalationFactor = Decimal.add(1, rate).pow(cpiPeriod);
+    
+    // Validate escalation factor is not NaN
+    if (escalationFactor.isNaN()) {
+      return error('CPI escalation factor is invalid (NaN)');
+    }
+    
     const tuition = base.times(escalationFactor);
+
+    // Validate tuition is not NaN
+    if (tuition.isNaN()) {
+      return error(`Tuition calculation resulted in NaN for year ${year}`);
+    }
 
     return success(tuition);
   } catch (err) {
@@ -106,7 +125,15 @@ export function calculateTuitionGrowth(
     const base = toDecimal(tuitionBase);
     const rate = toDecimal(cpiRate);
 
-    // Validate inputs
+    // Validate inputs - check for NaN first
+    if (base.isNaN()) {
+      return error('Base tuition is invalid (NaN)');
+    }
+
+    if (rate.isNaN()) {
+      return error('CPI rate is invalid (NaN)');
+    }
+
     if (base.isNegative() || base.isZero()) {
       return error('Base tuition must be positive');
     }
@@ -122,11 +149,21 @@ export function calculateTuitionGrowth(
     const results: TuitionGrowthResult[] = [];
     const escalationFactorBase = Decimal.add(1, rate);
 
+    // Validate escalation factor is not NaN
+    if (escalationFactorBase.isNaN()) {
+      return error('CPI escalation factor is invalid (NaN)');
+    }
+
     for (let year = startYear; year <= endYear; year++) {
       const yearsFromBase = year - baseYear;
       const cpiPeriod = Math.floor(yearsFromBase / cpiFrequency);
       const escalationFactor = escalationFactorBase.pow(cpiPeriod);
       const tuition = base.times(escalationFactor);
+
+      // Validate tuition is not NaN before adding to results
+      if (tuition.isNaN()) {
+        return error(`Tuition calculation resulted in NaN for year ${year}`);
+      }
 
       results.push({
         year,

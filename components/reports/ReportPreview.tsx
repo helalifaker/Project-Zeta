@@ -46,6 +46,19 @@ function isExpired(expiresAt: string): boolean {
   return new Date(expiresAt) < new Date();
 }
 
+function isExpiringSoon(expiresAt: string): boolean {
+  const expirationDate = new Date(expiresAt);
+  const now = new Date();
+  const daysUntilExpiration = Math.ceil((expirationDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  return daysUntilExpiration > 0 && daysUntilExpiration <= 7;
+}
+
+function getDaysUntilExpiration(expiresAt: string): number {
+  const expirationDate = new Date(expiresAt);
+  const now = new Date();
+  return Math.ceil((expirationDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+}
+
 export function ReportPreview({ report, open, onOpenChange, onDownload }: ReportPreviewProps) {
   const expired = isExpired(report.expiresAt);
 
@@ -114,9 +127,20 @@ export function ReportPreview({ report, open, onOpenChange, onDownload }: Report
             <label className="text-sm font-medium text-muted-foreground">Expires</label>
             <div className="mt-1">
               {expired ? (
-                <Badge variant="destructive">Expired</Badge>
+                <Badge variant="destructive" className="flex items-center gap-1 w-fit">
+                  <span className="h-2 w-2 rounded-full bg-red-500" />
+                  Expired
+                </Badge>
+              ) : isExpiringSoon(report.expiresAt) ? (
+                <Badge variant="outline" className="flex items-center gap-1 w-fit border-yellow-500 text-yellow-500">
+                  <span className="h-2 w-2 rounded-full bg-yellow-500" />
+                  Expires in {getDaysUntilExpiration(report.expiresAt)} day{getDaysUntilExpiration(report.expiresAt) !== 1 ? 's' : ''} ({formatDate(report.expiresAt)})
+                </Badge>
               ) : (
-                <Badge variant="default">Expires {formatDate(report.expiresAt)}</Badge>
+                <Badge variant="default" className="flex items-center gap-1 w-fit">
+                  <span className="h-2 w-2 rounded-full bg-green-500" />
+                  Expires {formatDate(report.expiresAt)}
+                </Badge>
               )}
             </div>
           </div>

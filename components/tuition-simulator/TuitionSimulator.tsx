@@ -5,9 +5,10 @@
 
 'use client';
 
-import { useEffect, useMemo, useCallback } from 'react';
+import { useEffect, useMemo, useCallback, useState, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
 import { RentContextPanel } from './RentContextPanel';
 import { ChartsPanel } from './ChartsPanel';
 import { TuitionControlsPanel } from './TuitionControlsPanel';
@@ -18,7 +19,7 @@ import type { FullProjectionParams } from '@/lib/calculations/financial/projecti
 import { toWorkerNumber, serializeRentPlanParametersForWorker } from '@/lib/utils/worker-serialize';
 
 interface TuitionSimulatorProps {
-  versions: VersionWithRelations[];
+  versions?: VersionWithRelations[];
 }
 
 /**
@@ -33,16 +34,17 @@ function buildProjectionParams(
     ib: Array<{ year: number; students: number }>;
   }
 ): FullProjectionParams | null {
-  if (!version.rentPlan || version.curriculumPlans.length < 2) {
+  if (!version.rentPlan || version.curriculumPlans.length < 1) {
     return null;
   }
 
   const frPlan = version.curriculumPlans.find((cp) => cp.curriculumType === 'FR');
-  const ibPlan = version.curriculumPlans.find((cp) => cp.curriculumType === 'IB');
-
-  if (!frPlan || !ibPlan) {
+  if (!frPlan) {
     return null;
   }
+
+  const ibPlan = version.curriculumPlans.find((cp) => cp.curriculumType === 'IB');
+  const isIBEnabled = ibPlan && ibPlan.capacity > 0;
 
   // Calculate adjusted tuition bases - convert to numbers for Web Worker
   const frBaseTuition = toWorkerNumber(frPlan.tuitionBase) ?? 0;
@@ -56,9 +58,11 @@ function buildProjectionParams(
       ? enrollmentProjections.fr
       : (frPlan.studentsProjection as Array<{ year: number; students: number }>);
   const ibStudentsProjection =
-    enrollmentProjections.ib.length > 0
-      ? enrollmentProjections.ib
-      : (ibPlan.studentsProjection as Array<{ year: number; students: number }>);
+    isIBEnabled && ibPlan
+      ? (enrollmentProjections.ib.length > 0
+          ? enrollmentProjections.ib
+          : (ibPlan.studentsProjection as Array<{ year: number; students: number }>))
+      : [];
 
   // Default admin settings - use numbers for Web Worker
   const adminSettings = {
@@ -85,23 +89,29 @@ function buildProjectionParams(
     fixedAmount: toWorkerNumber(account.fixedAmount),
   }));
 
+  const curriculumPlans = [
+    {
+      curriculumType: 'FR',
+      capacity: frPlan.capacity,
+      tuitionBase: adjustedFrTuition,
+      cpiFrequency: cpiFrequency.fr,
+      studentsProjection: frStudentsProjection,
+    },
+  ];
+
+  // Only include IB if enabled
+  if (isIBEnabled && ibPlan) {
+    curriculumPlans.push({
+      curriculumType: 'IB',
+      capacity: ibPlan.capacity,
+      tuitionBase: adjustedIbTuition,
+      cpiFrequency: cpiFrequency.ib,
+      studentsProjection: ibStudentsProjection,
+    });
+  }
+
   return {
-    curriculumPlans: [
-      {
-        curriculumType: 'FR',
-        capacity: frPlan.capacity,
-        tuitionBase: adjustedFrTuition,
-        cpiFrequency: cpiFrequency.fr,
-        studentsProjection: frStudentsProjection,
-      },
-      {
-        curriculumType: 'IB',
-        capacity: ibPlan.capacity,
-        tuitionBase: adjustedIbTuition,
-        cpiFrequency: cpiFrequency.ib,
-        studentsProjection: ibStudentsProjection,
-      },
-    ],
+    curriculumPlans,
     rentPlan: {
       rentModel: version.rentPlan.rentModel as 'FIXED_ESCALATION' | 'REVENUE_SHARE' | 'PARTNER_MODEL',
       parameters: serializeRentPlanParametersForWorker(version.rentPlan.parameters as Record<string, unknown>),
@@ -116,7 +126,7 @@ function buildProjectionParams(
   };
 }
 
-export function TuitionSimulator({ versions }: TuitionSimulatorProps) {
+export function TuitionSimulator({ versions: initialVersions }: TuitionSimulatorProps) {
   const {
     selectedVersionId,
     setSelectedVersionId,
@@ -134,23 +144,134 @@ export function TuitionSimulator({ versions }: TuitionSimulatorProps) {
   const { calculate, loading: calculationLoading, error: calculationError, projection: calculatedProjection } =
     useFinancialCalculation();
 
-  // Initialize with first version if available
-  useEffect(() => {
-    if (versions.length > 0 && !selectedVersionId && versions[0]) {
-      setSelectedVersionId(versions[0].id);
-      setBaseVersion(versions[0]);
-    }
-  }, [versions, selectedVersionId, setSelectedVersionId, setBaseVersion]);
+  // Local state for versions
+  const [lightVersions, setLightVersions] = useState<Array<{ id: string; name: string }>>([]);
+  const [versions, setVersionsState] = useState<VersionWithRelations[]>(initialVersions || []);
+  const [versionsLoading, setVersionsLoading] = useState(!initialVersions);
+  const [versionDetailsCache, setVersionDetailsCache] = useState<Map<string, VersionWithRelations>>(new Map());
+  
+  // Track if versions have been fetched to prevent duplicate fetches (React Strict Mode)
+  const versionsFetchedRef = useRef(false);
 
-  // Update base version when selection changes
+  // Fetch lightweight list of versions (FAST - no details)
+  useEffect(() => {
+    if (initialVersions) {
+      setVersionsState(initialVersions);
+      setLightVersions(initialVersions.map(v => ({ id: v.id, name: v.name })));
+      setVersionsLoading(false);
+      return;
+    }
+
+    // Prevent duplicate fetches (React Strict Mode runs effects twice in development)
+    if (versionsFetchedRef.current) {
+      return;
+    }
+    versionsFetchedRef.current = true;
+
+    console.log('📡 Fetching versions list (lightweight)...');
+    const fetchStart = performance.now();
+
+    fetch('/api/versions?page=1&limit=100&lightweight=true')
+      .then(response => response.json())
+      .then(data => {
+        const fetchTime = performance.now() - fetchStart;
+        console.log(`✅ Versions list loaded in ${fetchTime.toFixed(0)}ms`);
+        
+        if (data.success && data.data?.versions) {
+          const lightList = data.data.versions.map((v: any) => ({
+            id: v.id,
+            name: v.name,
+          }));
+          setLightVersions(lightList);
+        }
+        setVersionsLoading(false);
+      })
+      .catch(error => {
+        console.error('❌ Failed to fetch versions:', error);
+        setVersionsLoading(false);
+      });
+  }, [initialVersions]);
+
+  // Fetch full details for selected version ONLY (lazy loading)
+  useEffect(() => {
+    if (!selectedVersionId || lightVersions.length === 0) {
+      return;
+    }
+
+    // Check if already in cache or state
+    const versionInState = versions.find(v => v.id === selectedVersionId);
+    if (versionInState && 'curriculumPlans' in versionInState && Array.isArray((versionInState as VersionWithRelations).curriculumPlans)) {
+      return; // Already have full details
+    }
+
+    if (versionDetailsCache.has(selectedVersionId)) {
+      const cached = versionDetailsCache.get(selectedVersionId)!;
+      setVersionsState(prev => {
+        const index = prev.findIndex(v => v.id === selectedVersionId);
+        if (index >= 0) {
+          const updated = [...prev];
+          updated[index] = cached;
+          return updated;
+        }
+        return [...prev, cached];
+      });
+      return;
+    }
+
+    // Fetch full details
+    console.log(`📡 Fetching full details for selected version...`);
+    const fetchStart = performance.now();
+
+    fetch(`/api/versions/${selectedVersionId}`)
+      .then(res => res.json())
+      .then(detail => {
+        const fetchTime = performance.now() - fetchStart;
+        console.log(`✅ Full details loaded in ${fetchTime.toFixed(0)}ms`);
+        
+        if (detail.success && detail.data) {
+          const detailedVersion = detail.data as VersionWithRelations;
+          
+          // Update cache
+          setVersionDetailsCache(prev => new Map(prev).set(selectedVersionId, detailedVersion));
+          
+          // Update state
+          setVersionsState(prev => {
+            const index = prev.findIndex(v => v.id === selectedVersionId);
+            if (index >= 0) {
+              const updated = [...prev];
+              updated[index] = detailedVersion;
+              return updated;
+            }
+            return [...prev, detailedVersion];
+          });
+        }
+      })
+      .catch(error => {
+        console.error('❌ Failed to fetch version details:', error);
+      });
+  }, [selectedVersionId, lightVersions, versionDetailsCache, versions]);
+
+  // Initialize with first version if available (use lightVersions for initial selection)
+  useEffect(() => {
+    if (lightVersions.length > 0 && !selectedVersionId && lightVersions[0]) {
+      setSelectedVersionId(lightVersions[0].id);
+    }
+  }, [lightVersions, selectedVersionId]);
+
+  // Update base version when selection changes (only if we have full details)
   useEffect(() => {
     if (selectedVersionId && versions.length > 0) {
-      const version = versions.find((v) => v.id === selectedVersionId);
-      if (version) {
+      const version = versions.find((v) => 
+        v.id === selectedVersionId && 
+        'curriculumPlans' in v && 
+        Array.isArray((v as VersionWithRelations).curriculumPlans)
+      ) as VersionWithRelations | undefined;
+      
+      if (version && version !== baseVersion) {
         setBaseVersion(version);
       }
     }
-  }, [selectedVersionId, versions, setBaseVersion]);
+  }, [selectedVersionId, versions, baseVersion, setBaseVersion]);
 
   // Debounced calculation trigger
   const debounceTimerRef = useMemo(() => ({ current: null as NodeJS.Timeout | null }), []);
@@ -217,6 +338,23 @@ export function TuitionSimulator({ versions }: TuitionSimulatorProps) {
     }
   };
 
+  // Show skeleton while versions are loading
+  if (versionsLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-10 w-64" />
+          <Skeleton className="h-10 w-48" />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <Skeleton className="h-screen" />
+          <Skeleton className="h-screen" />
+          <Skeleton className="h-screen" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header with Version Selector */}
@@ -235,7 +373,7 @@ export function TuitionSimulator({ versions }: TuitionSimulatorProps) {
             <SelectValue placeholder="Select base version" />
           </SelectTrigger>
           <SelectContent>
-            {versions.map((version) => (
+            {(lightVersions.length > 0 ? lightVersions : versions.map(v => ({ id: v.id, name: v.name }))).map((version) => (
               <SelectItem key={version.id} value={version.id}>
                 {version.name}
               </SelectItem>
@@ -244,7 +382,7 @@ export function TuitionSimulator({ versions }: TuitionSimulatorProps) {
         </Select>
       </div>
 
-      {versions.length === 0 ? (
+      {lightVersions.length === 0 ? (
         <Card>
           <CardContent className="p-12 text-center text-muted-foreground">
             No versions available. Create a version to use the tuition simulator.

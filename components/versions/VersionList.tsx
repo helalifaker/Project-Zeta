@@ -17,8 +17,8 @@ import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import Link from 'next/link';
 
 interface VersionListProps {
-  initialVersions: VersionListItem[];
-  initialPagination: {
+  initialVersions?: VersionListItem[];
+  initialPagination?: {
     page: number;
     limit: number;
     total: number;
@@ -30,11 +30,17 @@ export function VersionList({ initialVersions, initialPagination }: VersionListP
   const { versions, pagination, filters, setVersions, setPagination, setLoading, setError } = useVersionStore();
   const [view, setView] = useState<'card' | 'table'>('card');
 
-  // Initialize store with server data
+  // Initialize store with server data (if provided)
   useEffect(() => {
-    setVersions(initialVersions);
-    setPagination(initialPagination);
-  }, [initialVersions, initialPagination, setVersions, setPagination]);
+    if (initialVersions && initialPagination) {
+      setVersions(initialVersions);
+      setPagination(initialPagination);
+      setLoading(false);
+    } else {
+      // No initial data - will be fetched by next useEffect
+      setLoading(true);
+    }
+  }, [initialVersions, initialPagination, setVersions, setPagination, setLoading]);
 
   // Fetch versions when filters or pagination change
   useEffect(() => {

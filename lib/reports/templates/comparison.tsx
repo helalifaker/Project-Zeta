@@ -72,18 +72,21 @@ export function generateComparisonPDF(
           <Text>NPV (Cash Flow): {baseProjection.summary.npvCashFlow.toFixed(0)} SAR</Text>
         </View>
 
-        {compareVersions.map((version, index) => {
-          const projection = compareProjections[index];
-          if (!projection) return null;
-          
-          return (
+        {compareVersions
+          .map((version, index) => ({
+            version,
+            projection: compareProjections[index],
+          }))
+          .filter((item): item is { version: VersionWithRelations; projection: FullProjectionResult } => 
+            item.projection !== undefined && item.projection !== null
+          )
+          .map(({ version, projection }) => (
             <View key={version.id} style={styles.section}>
               <Text style={styles.sectionTitle}>Version: {version.name}</Text>
               <Text>NPV (Rent): {projection.summary.npvRent.toFixed(0)} SAR</Text>
               <Text>NPV (Cash Flow): {projection.summary.npvCashFlow.toFixed(0)} SAR</Text>
             </View>
-          );
-        })}
+          ))}
 
         {/* Charts */}
         {options.includeCharts && (

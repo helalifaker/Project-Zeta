@@ -5,7 +5,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,7 +28,7 @@ export function AuditLogViewer() {
 
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [actionFilter, setActionFilter] = useState(auditLogsFilters.action || '');
-  const [entityTypeFilter, setEntityTypeFilter] = useState(auditLogsFilters.entityType || '');
+  const [entityTypeFilter, setEntityTypeFilter] = useState(auditLogsFilters.entityType || 'all');
   const [startDate, setStartDate] = useState(auditLogsFilters.startDate || '');
   const [endDate, setEndDate] = useState(auditLogsFilters.endDate || '');
 
@@ -50,7 +50,7 @@ export function AuditLogViewer() {
       limit: auditLogsLimit,
     };
     if (actionFilter) filters.action = actionFilter;
-    if (entityTypeFilter) filters.entityType = entityTypeFilter;
+    if (entityTypeFilter && entityTypeFilter !== 'all') filters.entityType = entityTypeFilter;
     if (startDate) filters.startDate = startDate;
     if (endDate) filters.endDate = endDate;
     fetchAuditLogs(filters);
@@ -106,7 +106,7 @@ export function AuditLogViewer() {
               <SelectValue placeholder="All Entity Types" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All Entity Types</SelectItem>
+              <SelectItem value="all">All Entity Types</SelectItem>
               <SelectItem value="VERSION">Version</SelectItem>
               <SelectItem value="CURRICULUM">Curriculum</SelectItem>
               <SelectItem value="RENT">Rent</SelectItem>
@@ -169,8 +169,8 @@ export function AuditLogViewer() {
                   </TableRow>
                 ) : (
                   auditLogs.map((log) => (
-                    <>
-                      <TableRow key={log.id} className="cursor-pointer" onClick={() => toggleRow(log.id)}>
+                    <React.Fragment key={log.id}>
+                      <TableRow className="cursor-pointer" onClick={() => toggleRow(log.id)}>
                         <TableCell>
                           {expandedRows.has(log.id) ? (
                             <ChevronUp className="h-4 w-4" />
@@ -207,7 +207,7 @@ export function AuditLogViewer() {
                           </TableCell>
                         </TableRow>
                       )}
-                    </>
+                    </React.Fragment>
                   ))
                 )}
               </TableBody>

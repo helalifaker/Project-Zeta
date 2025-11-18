@@ -23,6 +23,8 @@ export interface PartnerModelParams {
   buaSize: Decimal | number | string; // Built-up area in square meters
   constructionCostPerSqm: Decimal | number | string; // SAR per sqm
   yieldBase: Decimal | number | string; // e.g., 0.045 for 4.5%
+  growthRate?: Decimal | number | string; // Annual rent growth rate (0-1, e.g., 0.03 = 3%), optional, default 0
+  frequency?: number; // Apply growth every N years (1, 2, 3, 4, or 5), optional, default 1
   startYear: number;
   endYear: number;
 }
@@ -87,7 +89,7 @@ export function calculatePartnerModelBaseRent(
 
 /**
  * Calculate rent for multiple years using partner model
- * Note: Partner model rent is constant across all years (no escalation)
+ * Supports optional rent escalation with growth rate and frequency
  */
 export function calculatePartnerModelRent(
   params: PartnerModelParams
@@ -99,6 +101,8 @@ export function calculatePartnerModelRent(
       buaSize,
       constructionCostPerSqm,
       yieldBase,
+      growthRate = 0,
+      frequency = 1,
       startYear,
       endYear,
     } = params;
@@ -118,6 +122,8 @@ export function calculatePartnerModelRent(
     const bua = toDecimal(buaSize);
     const constructionCost = toDecimal(constructionCostPerSqm);
     const yieldRate = toDecimal(yieldBase);
+    const growth = toDecimal(growthRate ?? 0);
+    const freq = frequency ?? 1;
 
     // Validate inputs
     if (land.isNegative() || land.isZero()) {
@@ -140,22 +146,54 @@ export function calculatePartnerModelRent(
       return error('Yield must be between 0 and 1 (0% to 100%)');
     }
 
-    // Calculate base values (same for all years)
+    // Validate growth rate (0 to 1, i.e., 0% to 100%)
+    if (growth.isNegative() || growth.greaterThan(1)) {
+      return error('Growth rate must be between 0 and 1 (0% to 100%)');
+    }
+
+    // Validate frequency (1, 2, 3, 4, or 5)
+    if (![1, 2, 3, 4, 5].includes(freq)) {
+      return error('Frequency must be 1, 2, 3, 4, or 5 years');
+    }
+
+    // Calculate base values
     const landValue = land.times(landPrice);
     const constructionValue = bua.times(constructionCost);
     const totalValue = landValue.plus(constructionValue);
-    const rent = totalValue.times(yieldRate);
+    const baseRent = totalValue.times(yieldRate);
 
-    // Create results for each year (rent is constant)
+    // Create results for each year with optional escalation
     const results: PartnerModelResult[] = [];
 
     for (let year = startYear; year <= endYear; year++) {
+      let rent = baseRent;
+
+      // Year 1: Use base rent (calculated from yield) - no escalation
+      // Year 2+: Apply escalation rate with frequency
+      const yearsFromStart = year - startYear;
+      
+      // Only apply escalation for years 2+ (yearsFromStart > 0)
+      // AND only if growth rate is set (growthRate > 0)
+      if (yearsFromStart > 0 && growth.greaterThan(0)) {
+        // Calculate number of escalations based on frequency
+        // Example: frequency=2, yearsFromStart=3 → escalations = floor(3/2) = 1
+        const escalations = Math.floor(yearsFromStart / freq);
+        
+        // Apply escalation only if escalations > 0
+        // This ensures Year 1 (yearsFromStart=0, escalations=0) uses base rent
+        // And Year 2 with frequency=2 (yearsFromStart=1, escalations=0) also uses base rent
+        if (escalations > 0) {
+          const escalationFactor = Decimal.add(1, growth).pow(escalations);
+          rent = baseRent.times(escalationFactor);
+        }
+      }
+
       results.push({
         year,
         landValue,
         constructionCost: constructionValue,
         totalValue,
-        rent, // Same rent for all years
+        rent,
       });
     }
 

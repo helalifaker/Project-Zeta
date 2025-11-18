@@ -90,20 +90,22 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const skip = (page - 1) * limit;
 
     // Fetch reports
-    const [reports, total] = await Promise.all([
-      prisma.report.findMany({
+    const [reportsRaw, total] = await Promise.all([
+      prisma.reports.findMany({
         where,
         orderBy: { generatedAt: 'desc' },
         skip,
         take: limit,
         include: {
-          version: {
+          // Prisma schema uses snake_case relations:
+          // reports.versions (optional) and reports.users (generator)
+          versions: {
             select: {
               id: true,
               name: true,
             },
           },
-          generator: {
+          users: {
             select: {
               id: true,
               name: true,
@@ -112,8 +114,22 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           },
         },
       }),
-      prisma.report.count({ where }),
+      prisma.reports.count({ where }),
     ]);
+
+    // Map snake_case relations to camelCase fields expected by the client
+    const reports = reportsRaw.map((report) => {
+      const mapped: any = {
+        ...report,
+        version: report.versions ?? null,
+        generator: report.users ?? null,
+      };
+
+      delete mapped.versions;
+      delete mapped.users;
+
+      return mapped;
+    });
 
     // Add cache headers for GET requests (cache for 60 seconds)
     const headers = {

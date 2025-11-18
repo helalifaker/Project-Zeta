@@ -22,7 +22,7 @@ interface GenerateReportFormProps {
 export function GenerateReportForm({ versions, userRole, onSuccess }: GenerateReportFormProps) {
   const [versionId, setVersionId] = useState<string>('');
   const [reportType, setReportType] = useState<'EXECUTIVE_SUMMARY' | 'FINANCIAL_DETAIL' | 'COMPARISON'>('EXECUTIVE_SUMMARY');
-  const [format, setFormat] = useState<'PDF' | 'EXCEL'>('PDF');
+  const [format, setFormat] = useState<'PDF' | 'EXCEL' | 'CSV'>('PDF');
   const [includeCharts, setIncludeCharts] = useState(true);
   const [includeYearByYear, setIncludeYearByYear] = useState(true);
   const [includeAssumptions, setIncludeAssumptions] = useState(false);
@@ -60,7 +60,11 @@ export function GenerateReportForm({ versions, userRole, onSuccess }: GenerateRe
       const data = await response.json();
 
       if (!data.success) {
-        setError(data.error || 'Failed to generate report');
+        // Handle error message - ensure it's a string, not an object
+        const errorMessage = typeof data.error === 'string' 
+          ? data.error 
+          : data.error?.message || 'Failed to generate report';
+        setError(errorMessage);
         return;
       }
 
@@ -72,14 +76,32 @@ export function GenerateReportForm({ versions, userRole, onSuccess }: GenerateRe
       onSuccess();
     } catch (err) {
       console.error('Error generating report:', err);
-      setError('Failed to generate report');
+      // Handle network errors or non-JSON responses
+      if (err instanceof TypeError && err.message.includes('fetch')) {
+        setError('Network error: Could not connect to server');
+      } else {
+        setError('Failed to generate report. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
   };
 
+  // Preview structure based on selected options
+  const previewSections = [
+    { name: 'Report Header', included: true },
+    { name: 'Key Performance Indicators (KPIs)', included: true },
+    { name: 'Summary Metrics', included: true },
+    { name: 'Charts and Visualizations', included: includeCharts },
+    { name: 'Year-by-Year Data', included: includeYearByYear },
+    { name: 'Assumptions', included: includeAssumptions },
+    { name: 'Audit Trail', included: includeAuditTrail && userRole === 'ADMIN' },
+  ];
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <form onSubmit={handleSubmit} className="space-y-4">
       {/* Version Selector */}
       <div className="space-y-2">
         <Label>Version *</Label>
@@ -94,7 +116,7 @@ export function GenerateReportForm({ versions, userRole, onSuccess }: GenerateRe
           <SelectContent>
             {versions.map((version) => (
               <SelectItem key={version.id} value={version.id}>
-                {version.name}
+                {String(version.name || 'Unnamed Version')}
               </SelectItem>
             ))}
           </SelectContent>
@@ -125,7 +147,7 @@ export function GenerateReportForm({ versions, userRole, onSuccess }: GenerateRe
         <Label>Format *</Label>
         <Select
           value={format}
-          onValueChange={(value) => setFormat(value as 'PDF' | 'EXCEL')}
+          onValueChange={(value) => setFormat(value as 'PDF' | 'EXCEL' | 'CSV')}
           required
         >
           <SelectTrigger>
@@ -134,6 +156,7 @@ export function GenerateReportForm({ versions, userRole, onSuccess }: GenerateRe
           <SelectContent>
             <SelectItem value="PDF">PDF</SelectItem>
             <SelectItem value="EXCEL">Excel</SelectItem>
+            <SelectItem value="CSV">CSV</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -208,7 +231,55 @@ export function GenerateReportForm({ versions, userRole, onSuccess }: GenerateRe
           'Generate Report'
         )}
       </Button>
-    </form>
+      </form>
+
+      {/* Live Preview */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Preview Structure</CardTitle>
+          <CardDescription>
+            Sections that will be included in your report
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {previewSections.map((section) => (
+              <div
+                key={section.name}
+                className={`flex items-center justify-between p-2 rounded-md ${
+                  section.included
+                    ? 'bg-green-500/10 border border-green-500/20'
+                    : 'bg-muted border border-muted'
+                }`}
+              >
+                <span className={`text-sm ${section.included ? 'text-foreground' : 'text-muted-foreground'}`}>
+                  {section.name}
+                </span>
+                {section.included ? (
+                  <span className="text-xs text-green-500 font-medium">✓ Included</span>
+                ) : (
+                  <span className="text-xs text-muted-foreground">Not included</span>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 p-3 bg-muted rounded-md">
+            <p className="text-xs text-muted-foreground">
+              <strong>Format:</strong> {String(format)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              <strong>Type:</strong> {String(reportType).replace('_', ' ')}
+            </p>
+            {reportType === 'COMPARISON' && (
+              <p className="text-xs text-yellow-500 mt-1">
+                ⚠️ Comparison reports require selecting comparison versions
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+      </div>
+    </div>
   );
 }
 

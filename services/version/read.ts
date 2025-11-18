@@ -63,28 +63,28 @@ export async function getVersionById(
     }
 
     // Fetch version with all relationships
-    const version = await prisma.version.findUnique({
+    const version = await prisma.versions.findUnique({
       where: { id },
       include: {
-        curriculumPlans: true,
-        rentPlan: true,
-        capexItems: true,
-        opexSubAccounts: true,
-        creator: {
+        curriculum_plans: true,
+        rent_plans: true,
+        capex_items: true,
+        opex_sub_accounts: true,
+        users: {
           select: {
             id: true,
             email: true,
             name: true,
           },
         },
-        basedOn: {
+        versions: {
           select: {
             id: true,
             name: true,
             mode: true,
           },
         },
-        derivatives: {
+        other_versions: {
           select: {
             id: true,
             name: true,
@@ -103,7 +103,26 @@ export async function getVersionById(
       return error('Forbidden', 'FORBIDDEN');
     }
 
-    return success(version as VersionWithRelations);
+    // Map snake_case to camelCase for client
+    const mappedVersion: any = {
+      ...version,
+      curriculumPlans: version.curriculum_plans,
+      rentPlan: version.rent_plans,
+      capexItems: version.capex_items,
+      opexSubAccounts: version.opex_sub_accounts,
+      creator: version.users,
+      basedOn: version.versions,
+      derivatives: version.other_versions,
+    };
+    delete mappedVersion.curriculum_plans;
+    delete mappedVersion.rent_plans;
+    delete mappedVersion.capex_items;
+    delete mappedVersion.opex_sub_accounts;
+    delete mappedVersion.users;
+    delete mappedVersion.versions;
+    delete mappedVersion.other_versions;
+
+    return success(mappedVersion as VersionWithRelations);
   } catch (err) {
     console.error('Failed to get version:', err);
     return error('Failed to get version', 'INTERNAL_ERROR');
@@ -179,10 +198,10 @@ export async function listVersions(
     };
 
     // Count total matching records
-    const total = await prisma.version.count({ where });
+    const total = await prisma.versions.count({ where });
 
     // Fetch versions
-    const versions = await prisma.version.findMany({
+    const versions = await prisma.versions.findMany({
       where,
       orderBy,
       skip: (page - 1) * actualLimit,

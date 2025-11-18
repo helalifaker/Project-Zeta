@@ -5,18 +5,21 @@
  */
 
 import { NextResponse } from 'next/server';
-import { requireRole } from '@/lib/auth/middleware';
+import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { getAdminSettings, updateAdminSettings } from '@/services/admin/settings';
 import { UpdateAdminSettingsSchema } from '@/lib/validation/admin';
+import { getCacheHeaders } from '@/lib/cache/revalidate';
 
 /**
  * GET /api/admin/settings
  * Fetch all admin settings
+ * Note: Any authenticated user can read settings (needed for calculations)
+ * Only updates require ADMIN role
  */
 export async function GET(): Promise<Response> {
   try {
-    // Require ADMIN role
-    const authResult = await requireRole(['ADMIN']);
+    // Allow any authenticated user to read settings (needed for calculations)
+    const authResult = await requireAuth();
     if (!authResult.success) {
       return NextResponse.json(
         { success: false, error: authResult.error, code: authResult.code },
@@ -33,7 +36,12 @@ export async function GET(): Promise<Response> {
       );
     }
 
-    return NextResponse.json({ success: true, data: result.data });
+    // Settings rarely change - cache aggressively (10 minutes)
+    const headers = {
+      'Cache-Control': getCacheHeaders(600, 1200), // 10 min cache, 20 min stale
+    };
+
+    return NextResponse.json({ success: true, data: result.data }, { headers });
   } catch (error) {
     console.error('Unexpected error in GET /api/admin/settings:', error);
     return NextResponse.json(

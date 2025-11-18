@@ -17,6 +17,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import type { CreateVersionInput } from '@/lib/validation/version';
 import { VersionMode, CurriculumType, RentModel } from '@prisma/client';
 import { ArrowLeft } from 'lucide-react';
@@ -33,6 +35,7 @@ export function VersionForm({ initialData, onSubmit }: VersionFormProps) {
   const [name, setName] = useState(initialData?.name || '');
   const [description, setDescription] = useState(initialData?.description || '');
   const [mode, setMode] = useState<VersionMode>(initialData?.mode || VersionMode.RELOCATION_2028);
+  const [enableIB, setEnableIB] = useState(true); // Default: enabled for new versions
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const onFormSubmit = async (e: React.FormEvent) => {
@@ -56,7 +59,14 @@ export function VersionForm({ initialData, onSubmit }: VersionFormProps) {
       return;
     }
 
-    // Create default curriculum plans (FR and IB) with minimal valid data
+    // Generate zero projection helper
+    const generateZeroProjection = () => 
+      Array.from({ length: 30 }, (_, i) => ({
+        year: 2023 + i,
+        students: 0,
+      }));
+
+    // Create default curriculum plans (FR always required, IB optional)
     // These will be configured in detail after creation
     const defaultCurriculumPlans = [
       {
@@ -64,20 +74,14 @@ export function VersionForm({ initialData, onSubmit }: VersionFormProps) {
         capacity: 400, // Default capacity
         tuitionBase: 50000, // Default base tuition (SAR)
         cpiFrequency: 2, // CPI every 2 years
-        studentsProjection: Array.from({ length: 30 }, (_, i) => ({
-          year: 2023 + i,
-          students: 0, // Will be configured later
-        })),
+        studentsProjection: generateZeroProjection(),
       },
       {
         curriculumType: CurriculumType.IB,
-        capacity: 200, // Default capacity
+        capacity: enableIB ? 200 : 0, // Zero if disabled
         tuitionBase: 60000, // Default base tuition (SAR)
         cpiFrequency: 2, // CPI every 2 years
-        studentsProjection: Array.from({ length: 30 }, (_, i) => ({
-          year: 2023 + i,
-          students: 0, // Will be configured later
-        })),
+        studentsProjection: generateZeroProjection(), // Always zero initially
       },
     ];
 
@@ -225,13 +229,32 @@ export function VersionForm({ initialData, onSubmit }: VersionFormProps) {
         <CardHeader>
           <CardTitle>Curriculum Plans</CardTitle>
           <CardDescription>
-            FR and IB curriculum plans will be configured separately
+            FR curriculum is required. IB curriculum is optional.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {/* IB Enable/Disable Checkbox */}
+          <div className="flex items-center space-x-2 p-4 border rounded-lg bg-muted/50">
+            <Checkbox
+              id="enable-ib"
+              checked={enableIB}
+              onCheckedChange={(checked) => {
+                setEnableIB(checked as boolean);
+              }}
+            />
+            <Label htmlFor="enable-ib" className="text-sm font-medium cursor-pointer">
+              Enable IB Program
+            </Label>
+            <p className="text-xs text-muted-foreground ml-2">
+              {enableIB 
+                ? 'IB program is enabled. Configure IB curriculum in the version detail page after creation.' 
+                : 'IB program is disabled. Revenue will be calculated from FR only.'}
+            </p>
+          </div>
+          
           <p className="text-sm text-muted-foreground">
             Curriculum plans configuration will be available in the version detail page
-            after creation.
+            after creation. FR curriculum is always required.
           </p>
         </CardContent>
       </Card>

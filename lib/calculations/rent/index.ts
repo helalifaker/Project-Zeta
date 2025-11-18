@@ -6,6 +6,8 @@
 import type { RentModel } from '@prisma/client';
 import type { Result } from '@/types/result';
 import { error } from '@/types/result';
+import { toDecimal } from '../decimal-helpers';
+import Decimal from 'decimal.js';
 import type {
   FixedEscalationParams,
   FixedEscalationResult,
@@ -86,7 +88,8 @@ export function calculateRentForYear(
         p.baseRent,
         p.escalationRate,
         p.startYear,
-        year
+        year,
+        p.frequency ?? 1
       );
       if (!result.success) {
         return result;
@@ -113,17 +116,36 @@ export function calculateRentForYear(
 
     case 'PARTNER_MODEL': {
       const p = params as PartnerModelParams;
-      const result = calculatePartnerModelBaseRent(
+      // Calculate base rent (year 1)
+      const baseResult = calculatePartnerModelBaseRent(
         p.landSize,
         p.landPricePerSqm,
         p.buaSize,
         p.constructionCostPerSqm,
         p.yieldBase
       );
-      if (!result.success) {
-        return result;
+      if (!baseResult.success) {
+        return baseResult;
       }
-      return { success: true, data: { rent: result.data.toNumber() } };
+      
+      // Apply escalation for years 2+
+      const yearsFromStart = year - p.startYear;
+      if (yearsFromStart > 0) {
+        const freq = p.frequency ?? 1;
+        const growthRate = p.growthRate ?? 0;
+        const growthRateDecimal = toDecimal(growthRate);
+        
+        if (growthRateDecimal.greaterThan(0)) {
+          const escalations = Math.floor(yearsFromStart / freq);
+          if (escalations > 0) {
+            const escalationFactor = Decimal.add(1, growthRateDecimal).pow(escalations);
+            const escalatedRent = baseResult.data.times(escalationFactor);
+            return { success: true, data: { rent: escalatedRent.toNumber() } };
+          }
+        }
+      }
+      
+      return { success: true, data: { rent: baseResult.data.toNumber() } };
     }
 
     default:

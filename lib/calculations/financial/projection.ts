@@ -237,6 +237,7 @@ export function calculateFullProjection(
         model: 'FIXED_ESCALATION',
         baseRent: (rentPlan.parameters.baseRent as Decimal | number | string) ?? 0,
         escalationRate: (rentPlan.parameters.escalationRate as Decimal | number | string) ?? 0,
+        frequency: (rentPlan.parameters.frequency as number) ?? undefined,
         startYear,
         endYear,
       };
@@ -274,6 +275,8 @@ export function calculateFullProjection(
         buaSize: (rentPlan.parameters.buaSize as Decimal | number | string) ?? 0,
         constructionCostPerSqm: (rentPlan.parameters.constructionCostPerSqm as Decimal | number | string) ?? 0,
         yieldBase: (rentPlan.parameters.yieldBase as Decimal | number | string) ?? 0,
+        growthRate: (rentPlan.parameters.growthRate as Decimal | number | string) ?? undefined,
+        frequency: (rentPlan.parameters.frequency as number) ?? undefined,
         startYear,
         endYear,
       };

@@ -18,6 +18,18 @@ import { toDecimal } from '../decimal-helpers';
 import type { Result } from '@/types/result';
 import { success, error } from '@/types/result';
 
+/**
+ * Curriculum Plan interface for staff cost calculation
+ */
+export interface CurriculumPlanForStaffCost {
+  curriculumType: 'FR' | 'IB';
+  studentsProjection: Array<{ year: number; students: number }>;
+  teacherRatio: Decimal | number | string | null; // Ratio of teachers per student (e.g., 0.0714 = 1/14, meaning 1 teacher per 14 students)
+  nonTeacherRatio: Decimal | number | string | null; // Ratio of non-teachers per student (e.g., 0.08 = 1/12.5)
+  teacherMonthlySalary: Decimal | number | string | null;
+  nonTeacherMonthlySalary: Decimal | number | string | null;
+}
+
 export interface StaffCostParams {
   baseStaffCost: Decimal | number | string;
   cpiRate: Decimal | number | string; // e.g., 0.03 for 3%
@@ -163,6 +175,127 @@ export function calculateStaffCosts(
     return success(results);
   } catch (err) {
     return error(`Failed to calculate staff costs: ${err instanceof Error ? err.message : 'Unknown error'}`);
+  }
+}
+
+/**
+ * Calculate staff cost base from curriculum plans for a specific year
+ * 
+ * Formula per curriculum:
+ * - Number of teachers = students / teacherRatio
+ * - Number of non-teachers = students / nonTeacherRatio
+ * - Annual teacher cost = (students / teacherRatio) × teacherMonthlySalary × 12
+ * - Annual non-teacher cost = (students / nonTeacherRatio) × nonTeacherMonthlySalary × 12
+ * - Total curriculum staff cost = teacher cost + non-teacher cost
+ * 
+ * Total staff cost = sum across all curricula
+ *
+ * @param curriculumPlans - Array of curriculum plans with staff cost data
+ * @param baseYear - Year to calculate staff cost base for (usually 2028 for relocation)
+ * @returns Result containing the calculated base staff cost
+ *
+ * @example
+ * const result = calculateStaffCostBaseFromCurriculum([
+ *   {
+ *     curriculumType: 'FR',
+ *     studentsProjection: [{ year: 2028, students: 200 }],
+ *     teacherRatio: 0.0714, // 1/14 = 0.0714 (1 teacher per 14 students)
+ *     nonTeacherRatio: 0.0385, // 1/26 = 0.0385 (1 non-teacher per 26 students)
+ *     teacherMonthlySalary: 20000,
+ *     nonTeacherMonthlySalary: 15000
+ *   }
+ * ], 2028);
+ * // Returns: { success: true, data: 3423076.92 } // (200 × 0.0714 × 20000 × 12) + (200 × 0.0385 × 15000 × 12)
+ */
+export function calculateStaffCostBaseFromCurriculum(
+  curriculumPlans: CurriculumPlanForStaffCost[],
+  baseYear: number
+): Result<Decimal> {
+  try {
+    if (!curriculumPlans || curriculumPlans.length === 0) {
+      return error('At least one curriculum plan is required');
+    }
+
+    if (baseYear < 2023 || baseYear > 2052) {
+      return error('Base year must be between 2023 and 2052');
+    }
+
+    let totalStaffCost = new Decimal(0);
+
+    for (const plan of curriculumPlans) {
+      // Find students for the base year
+      const yearData = plan.studentsProjection.find((p) => p.year === baseYear);
+      if (!yearData) {
+        return error(`Students projection not found for year ${baseYear} in curriculum ${plan.curriculumType}`);
+      }
+
+      const students = yearData.students;
+
+      // Validate required fields
+      if (
+        plan.teacherRatio === null ||
+        plan.teacherRatio === undefined ||
+        plan.nonTeacherRatio === null ||
+        plan.nonTeacherRatio === undefined ||
+        plan.teacherMonthlySalary === null ||
+        plan.teacherMonthlySalary === undefined ||
+        plan.nonTeacherMonthlySalary === null ||
+        plan.nonTeacherMonthlySalary === undefined
+      ) {
+        return error(
+          `Staff cost configuration incomplete for curriculum ${plan.curriculumType}. ` +
+            'Please configure teacher ratio, non-teacher ratio, and monthly salaries.'
+        );
+      }
+
+      const teacherRatio = toDecimal(plan.teacherRatio);
+      const nonTeacherRatio = toDecimal(plan.nonTeacherRatio);
+      const teacherMonthlySalary = toDecimal(plan.teacherMonthlySalary);
+      const nonTeacherMonthlySalary = toDecimal(plan.nonTeacherMonthlySalary);
+
+      // Validate ratios are positive
+      if (teacherRatio.isZero() || teacherRatio.isNegative()) {
+        return error(`Teacher ratio must be positive for curriculum ${plan.curriculumType}`);
+      }
+
+      if (nonTeacherRatio.isZero() || nonTeacherRatio.isNegative()) {
+        return error(`Non-teacher ratio must be positive for curriculum ${plan.curriculumType}`);
+      }
+
+      // Validate salaries are positive
+      if (teacherMonthlySalary.isNegative() || teacherMonthlySalary.isZero()) {
+        return error(`Teacher monthly salary must be positive for curriculum ${plan.curriculumType}`);
+      }
+
+      if (nonTeacherMonthlySalary.isNegative() || nonTeacherMonthlySalary.isZero()) {
+        return error(`Non-teacher monthly salary must be positive for curriculum ${plan.curriculumType}`);
+      }
+
+      // Calculate number of staff members
+      // teacherRatio is stored as a ratio (e.g., 0.0714 = 1/14, meaning 1 teacher per 14 students)
+      // Formula: numTeachers = students × teacherRatio
+      // Example: 200 students × 0.0714 = 14.28 teachers
+      const numTeachers = toDecimal(students).times(teacherRatio);
+      const numNonTeachers = toDecimal(students).times(nonTeacherRatio);
+
+      // Calculate annual costs (monthly salary × 12 months)
+      const annualTeacherCost = numTeachers.times(teacherMonthlySalary).times(12);
+      const annualNonTeacherCost = numNonTeachers.times(nonTeacherMonthlySalary).times(12);
+
+      // Add to total
+      const curriculumStaffCost = annualTeacherCost.plus(annualNonTeacherCost);
+      totalStaffCost = totalStaffCost.plus(curriculumStaffCost);
+    }
+
+    if (totalStaffCost.isZero()) {
+      return error('Calculated staff cost is zero. Please check curriculum plan configuration.');
+    }
+
+    return success(totalStaffCost);
+  } catch (err) {
+    return error(
+      `Failed to calculate staff cost base from curriculum: ${err instanceof Error ? err.message : 'Unknown error'}`
+    );
   }
 }
 

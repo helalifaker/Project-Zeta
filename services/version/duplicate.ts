@@ -37,13 +37,13 @@ export async function duplicateVersion(
     }
 
     // Check if source version exists
-    const sourceVersion = await prisma.version.findUnique({
+    const sourceVersion = await prisma.versions.findUnique({
       where: { id },
       include: {
-        curriculumPlans: true,
-        rentPlan: true,
-        capexItems: true,
-        opexSubAccounts: true,
+        curriculum_plans: true,
+        rent_plans: true,
+        capex_items: true,
+        opex_sub_accounts: true,
       },
     });
 
@@ -55,7 +55,7 @@ export async function duplicateVersion(
     const finalName = newName || `${sourceVersion.name} (Copy)`;
 
     // Check for duplicate name
-    const existingVersion = await prisma.version.findUnique({
+    const existingVersion = await prisma.versions.findUnique({
       where: {
         name_createdBy: {
           name: finalName,
@@ -71,7 +71,7 @@ export async function duplicateVersion(
     // Duplicate version with all relationships in a transaction
     const duplicatedVersion = await prisma.$transaction(async (tx) => {
       // 1. Create new version
-      const newVersion = await tx.version.create({
+      const newVersion = await tx.versions.create({
         data: {
           name: finalName,
           description: sourceVersion.description,
@@ -83,9 +83,9 @@ export async function duplicateVersion(
       });
 
       // 2. Duplicate curriculum plans
-      if (sourceVersion.curriculumPlans.length > 0) {
-        await tx.curriculumPlan.createMany({
-          data: sourceVersion.curriculumPlans.map((cp) => ({
+      if (sourceVersion.curriculum_plans.length > 0) {
+        await tx.curriculum_plans.createMany({
+          data: sourceVersion.curriculum_plans.map((cp) => ({
             versionId: newVersion.id,
             curriculumType: cp.curriculumType,
             capacity: cp.capacity,
@@ -97,33 +97,37 @@ export async function duplicateVersion(
       }
 
       // 3. Duplicate rent plan
-      if (sourceVersion.rentPlan) {
-        await tx.rentPlan.create({
+      if (sourceVersion.rent_plans) {
+        await tx.rent_plans.create({
           data: {
             versionId: newVersion.id,
-            rentModel: sourceVersion.rentPlan.rentModel,
-            parameters: sourceVersion.rentPlan.parameters as Prisma.InputJsonValue,
+            rentModel: sourceVersion.rent_plans.rentModel,
+            parameters: sourceVersion.rent_plans.parameters as Prisma.InputJsonValue,
           },
         });
       }
 
-      // 4. Duplicate capex items
-      if (sourceVersion.capexItems.length > 0) {
-        await tx.capexItem.createMany({
-          data: sourceVersion.capexItems.map((item) => ({
+      // 4. Duplicate capex items (MANUAL ONLY)
+      // Auto-generated items (ruleId IS NOT NULL) should NOT be copied
+      // They will be regenerated from capex_rules after duplication
+      const manualCapexItems = sourceVersion.capex_items.filter((item) => item.ruleId === null);
+      if (manualCapexItems.length > 0) {
+        await tx.capex_items.createMany({
+          data: manualCapexItems.map((item) => ({
             versionId: newVersion.id,
             year: item.year,
             category: item.category,
             amount: item.amount,
             description: item.description,
+            ruleId: null, // Explicitly set to null for manual items
           })),
         });
       }
 
       // 5. Duplicate opex sub-accounts
-      if (sourceVersion.opexSubAccounts.length > 0) {
-        await tx.opexSubAccount.createMany({
-          data: sourceVersion.opexSubAccounts.map((account) => ({
+      if (sourceVersion.opex_sub_accounts.length > 0) {
+        await tx.opex_sub_accounts.createMany({
+          data: sourceVersion.opex_sub_accounts.map((account) => ({
             versionId: newVersion.id,
             subAccountName: account.subAccountName,
             percentOfRevenue: account.percentOfRevenue,
@@ -137,11 +141,11 @@ export async function duplicateVersion(
     });
 
     // Fetch duplicated version with relationships
-    const newVersionWithRelations = await prisma.version.findUnique({
+    const newVersionWithRelations = await prisma.versions.findUnique({
       where: { id: duplicatedVersion.id },
       include: {
-        curriculumPlans: true,
-        rentPlan: true,
+        curriculum_plans: true,
+        rent_plans: true,
         capexItems: true,
         opexSubAccounts: true,
         creator: {

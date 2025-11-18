@@ -32,7 +32,7 @@ export function UserManagement() {
   } = useSettingsStore();
 
   const [searchQuery, setSearchQuery] = useState(usersFilters.search || '');
-  const [roleFilter, setRoleFilter] = useState<string>(usersFilters.role || '');
+  const [roleFilter, setRoleFilter] = useState<string>(usersFilters.role || 'all');
   const [userDialogOpen, setUserDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserWithMetadata | null>(null);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
@@ -53,7 +53,7 @@ export function UserManagement() {
       limit: usersLimit,
     };
     if (searchQuery) filters.search = searchQuery;
-    if (roleFilter) filters.role = roleFilter;
+    if (roleFilter && roleFilter !== 'all') filters.role = roleFilter;
     fetchUsers(filters);
   };
 
@@ -126,7 +126,7 @@ export function UserManagement() {
               <SelectValue placeholder="All Roles" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All Roles</SelectItem>
+              <SelectItem value="all">All Roles</SelectItem>
               <SelectItem value="ADMIN">Admin</SelectItem>
               <SelectItem value="PLANNER">Planner</SelectItem>
               <SelectItem value="VIEWER">Viewer</SelectItem>

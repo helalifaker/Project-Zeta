@@ -34,6 +34,19 @@ export function serializeVersionForClient(data: VersionWithRelations): VersionWi
     serialized.curriculumPlans = serialized.curriculumPlans.map((plan: any) => ({
       ...plan,
       tuitionBase: decimalToNumber(plan.tuitionBase),
+      tuitionGrowthRate: decimalToNumber(plan.tuitionGrowthRate),
+      teacherRatio: decimalToNumber(plan.teacherRatio),
+      nonTeacherRatio: decimalToNumber(plan.nonTeacherRatio),
+      teacherMonthlySalary: decimalToNumber(plan.teacherMonthlySalary),
+      nonTeacherMonthlySalary: decimalToNumber(plan.nonTeacherMonthlySalary),
+    }));
+  }
+
+  // Handle capex rules
+  if (Array.isArray(serialized.capexRules)) {
+    serialized.capexRules = serialized.capexRules.map((rule: any) => ({
+      ...rule,
+      baseCost: decimalToNumber(rule.baseCost),
     }));
   }
 
@@ -42,6 +55,8 @@ export function serializeVersionForClient(data: VersionWithRelations): VersionWi
     serialized.capexItems = serialized.capexItems.map((item: any) => ({
       ...item,
       amount: decimalToNumber(item.amount),
+      // CRITICAL: Preserve ruleId to distinguish auto-generated (ruleId !== null) from manual (ruleId === null)
+      ruleId: item.ruleId ?? null, // Explicitly preserve ruleId (null for manual, string for auto)
     }));
   }
 

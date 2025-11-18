@@ -55,7 +55,7 @@ export async function listUsers(
     }
 
     const [users, total] = await Promise.all([
-      prisma.user.findMany({
+      prisma.users.findMany({
         where,
         skip,
         take: limit,
@@ -72,7 +72,7 @@ export async function listUsers(
           },
         },
       }),
-      prisma.user.count({ where }),
+      prisma.users.count({ where }),
     ]);
 
     const usersWithMetadata: UserWithMetadata[] = users.map((user) => ({
@@ -102,7 +102,7 @@ export async function listUsers(
  */
 export async function getUserById(userId: string): Promise<Result<UserWithMetadata>> {
   try {
-    const user = await prisma.user.findUnique({
+    const user = await prisma.users.findUnique({
       where: { id: userId },
       select: {
         id: true,
@@ -145,7 +145,7 @@ export async function createUser(
 ): Promise<Result<UserWithMetadata>> {
   try {
     // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
+    const existingUser = await prisma.users.findUnique({
       where: { email: data.email },
     });
 
@@ -157,7 +157,7 @@ export async function createUser(
     const hashedPassword = await bcrypt.hash(data.password, 10);
 
     // Create user
-    const user = await prisma.user.create({
+    const user = await prisma.users.create({
       data: {
         email: data.email,
         name: data.name,
@@ -214,7 +214,7 @@ export async function updateUser(
 ): Promise<Result<UserWithMetadata>> {
   try {
     // Get current user
-    const currentUser = await prisma.user.findUnique({
+    const currentUser = await prisma.users.findUnique({
       where: { id: userId },
     });
 
@@ -238,7 +238,7 @@ export async function updateUser(
     }
     if (data.email !== undefined) {
       // Check if email is already taken
-      const emailExists = await prisma.user.findUnique({
+      const emailExists = await prisma.users.findUnique({
         where: { email: data.email },
       });
       if (emailExists && emailExists.id !== userId) {
@@ -251,7 +251,7 @@ export async function updateUser(
     }
 
     // Update user
-    const user = await prisma.user.update({
+    const user = await prisma.users.update({
       where: { id: userId },
       data: updateData,
       select: {
@@ -307,7 +307,7 @@ export async function updateUser(
 export async function deleteUser(userId: string, adminId: string): Promise<Result<void>> {
   try {
     // Check if user exists
-    const user = await prisma.user.findUnique({
+    const user = await prisma.users.findUnique({
       where: { id: userId },
     });
 
@@ -321,7 +321,7 @@ export async function deleteUser(userId: string, adminId: string): Promise<Resul
     }
 
     // Delete user (cascade will handle related data)
-    await prisma.user.delete({
+    await prisma.users.delete({
       where: { id: userId },
     });
 

@@ -153,18 +153,19 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   setBaseVersion: (version) => set({ baseVersion: version }),
 
   initializeParameters: (version) => {
-    if (!version.rentPlan || version.curriculumPlans.length < 2) {
+    if (!version.rentPlan || version.curriculumPlans.length < 1) {
       set({ error: 'Invalid version data' });
       return;
     }
 
     const frPlan = version.curriculumPlans.find((cp) => cp.curriculumType === 'FR');
-    const ibPlan = version.curriculumPlans.find((cp) => cp.curriculumType === 'IB');
-
-    if (!frPlan || !ibPlan) {
-      set({ error: 'Version must have both FR and IB curriculum plans' });
+    if (!frPlan) {
+      set({ error: 'Version must have FR curriculum plan' });
       return;
     }
+
+    const ibPlan = version.curriculumPlans.find((cp) => cp.curriculumType === 'IB');
+    const isIBEnabled = ibPlan && ibPlan.capacity > 0;
 
     const parameters: SimulationParameters = {
       curriculum: {
@@ -177,7 +178,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
             frPlan.studentsProjection as Array<{ year: number; students: number }>
           ).map((sp) => ({ year: sp.year, students: sp.students })),
         },
-        ib: {
+        ib: isIBEnabled && ibPlan ? {
           curriculumType: 'IB',
           capacity: ibPlan.capacity,
           tuitionBase: new Decimal(ibPlan.tuitionBase),
@@ -185,6 +186,12 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
           studentsProjection: (
             ibPlan.studentsProjection as Array<{ year: number; students: number }>
           ).map((sp) => ({ year: sp.year, students: sp.students })),
+        } : {
+          curriculumType: 'IB',
+          capacity: 0,
+          tuitionBase: new Decimal(0),
+          cpiFrequency: 2 as 1 | 2 | 3,
+          studentsProjection: [],
         },
       },
       rent: {

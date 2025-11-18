@@ -11,6 +11,7 @@ const FixedEscalationParamsSchema = z.object({
   baseRent: z.number().positive('Base rent must be positive').finite().max(100000000, 'Base rent cannot exceed 100,000,000 SAR'),
   escalationRate: z.number().min(0, 'Escalation rate cannot be negative').max(1, 'Escalation rate cannot exceed 100%'),
   startYear: z.number().int().min(2023).max(2052),
+  frequency: z.number().int().min(1, 'Frequency must be at least 1 year').max(5, 'Frequency cannot exceed 5 years').optional(),
 });
 
 // Revenue Share parameters
@@ -25,6 +26,8 @@ const PartnerModelParamsSchema = z.object({
   buaSize: z.number().positive('BUA size must be positive').finite().max(1000000, 'BUA size cannot exceed 1,000,000 sqm'),
   constructionCostPerSqm: z.number().positive('Construction cost must be positive').finite().max(100000, 'Construction cost cannot exceed 100,000 SAR per sqm'),
   yieldBase: z.number().min(0, 'Yield cannot be negative').max(1, 'Yield cannot exceed 100%'),
+  growthRate: z.number().min(0, 'Growth rate cannot be negative').max(1, 'Growth rate cannot exceed 100%').optional(),
+  frequency: z.number().int().min(1, 'Frequency must be at least 1 year').max(5, 'Frequency cannot exceed 5 years'),
 });
 
 // Base rent plan schema (without versionId for use in CreateVersionSchema)

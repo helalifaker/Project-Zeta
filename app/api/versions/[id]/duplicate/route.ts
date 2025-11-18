@@ -49,13 +49,14 @@ export async function POST(
     }
 
     // Check if source version exists
-    const sourceVersion = await prisma.version.findUnique({
+    const sourceVersion = await prisma.versions.findUnique({
       where: { id },
       include: {
-        curriculumPlans: true,
-        rentPlan: true,
-        capexItems: true,
-        opexSubAccounts: true,
+        curriculum_plans: true,
+        rent_plans: true,
+        capex_items: true,
+        opex_sub_accounts: true,
+        capex_rules: true,
       },
     });
 
@@ -87,7 +88,7 @@ export async function POST(
       : `${sourceVersion.name} (Copy)`;
 
     // Check for duplicate name
-    const existingVersion = await prisma.version.findUnique({
+    const existingVersion = await prisma.versions.findUnique({
       where: {
         name_createdBy: {
           name: newName,
@@ -110,7 +111,7 @@ export async function POST(
     // Duplicate version with all relationships in a transaction
     const duplicatedVersion = await prisma.$transaction(async (tx) => {
       // 1. Create new version
-      const newVersion = await tx.version.create({
+      const newVersion = await tx.versions.create({
         data: {
           name: newName,
           description: sourceVersion.description,
@@ -122,9 +123,9 @@ export async function POST(
       });
 
       // 2. Duplicate curriculum plans
-      if (sourceVersion.curriculumPlans.length > 0) {
-        await tx.curriculumPlan.createMany({
-          data: sourceVersion.curriculumPlans.map((cp) => ({
+      if (sourceVersion.curriculum_plans.length > 0) {
+        await tx.curriculum_plans.createMany({
+          data: sourceVersion.curriculum_plans.map((cp) => ({
             versionId: newVersion.id,
             curriculumType: cp.curriculumType,
             capacity: cp.capacity,
@@ -136,33 +137,51 @@ export async function POST(
       }
 
       // 3. Duplicate rent plan
-      if (sourceVersion.rentPlan) {
-        await tx.rentPlan.create({
+      if (sourceVersion.rent_plans) {
+        await tx.rent_plans.create({
           data: {
             versionId: newVersion.id,
-            rentModel: sourceVersion.rentPlan.rentModel,
-            parameters: sourceVersion.rentPlan.parameters as Prisma.InputJsonValue,
+            rentModel: sourceVersion.rent_plans.rentModel,
+            parameters: sourceVersion.rent_plans.parameters as Prisma.InputJsonValue,
           },
         });
       }
 
-      // 4. Duplicate capex items
-      if (sourceVersion.capexItems.length > 0) {
-        await tx.capexItem.createMany({
-          data: sourceVersion.capexItems.map((item) => ({
+      // 4. Duplicate capex rules (auto-reinvestment rules)
+      if (sourceVersion.capex_rules && sourceVersion.capex_rules.length > 0) {
+        await tx.capex_rules.createMany({
+          data: sourceVersion.capex_rules.map((rule) => ({
+            versionId: newVersion.id,
+            category: rule.category,
+            cycleYears: rule.cycleYears,
+            baseCost: rule.baseCost,
+            startingYear: rule.startingYear,
+            inflationIndex: rule.inflationIndex,
+          })),
+        });
+      }
+
+      // 5. Duplicate capex items (MANUAL ONLY)
+      // Auto-generated items (ruleId IS NOT NULL) should NOT be copied
+      // They will be regenerated from capex_rules after duplication
+      const manualCapexItems = sourceVersion.capex_items.filter((item) => item.ruleId === null);
+      if (manualCapexItems.length > 0) {
+        await tx.capex_items.createMany({
+          data: manualCapexItems.map((item) => ({
             versionId: newVersion.id,
             year: item.year,
             category: item.category,
             amount: item.amount,
             description: item.description,
+            ruleId: null, // Explicitly set to null for manual items
           })),
         });
       }
 
-      // 5. Duplicate opex sub-accounts
-      if (sourceVersion.opexSubAccounts.length > 0) {
-        await tx.opexSubAccount.createMany({
-          data: sourceVersion.opexSubAccounts.map((account) => ({
+      // 6. Duplicate opex sub-accounts
+      if (sourceVersion.opex_sub_accounts.length > 0) {
+        await tx.opex_sub_accounts.createMany({
+          data: sourceVersion.opex_sub_accounts.map((account) => ({
             versionId: newVersion.id,
             subAccountName: account.subAccountName,
             percentOfRevenue: account.percentOfRevenue,
@@ -175,22 +194,23 @@ export async function POST(
       return newVersion;
     });
 
-    // Fetch duplicated version with relationships
-    const newVersionWithRelations = await prisma.version.findUnique({
+    // Fetch duplicated version with relationships (snake_case from Prisma)
+    const newVersionRaw = await prisma.versions.findUnique({
       where: { id: duplicatedVersion.id },
       include: {
-        curriculumPlans: true,
-        rentPlan: true,
-        capexItems: true,
-        opexSubAccounts: true,
-        creator: {
+        curriculum_plans: true,
+        rent_plans: true,
+        capex_items: true,
+        opex_sub_accounts: true,
+        capex_rules: true,
+        users: {
           select: {
             id: true,
             email: true,
             name: true,
           },
         },
-        basedOn: {
+        versions: {
           select: {
             id: true,
             name: true,
@@ -199,6 +219,20 @@ export async function POST(
         },
       },
     });
+
+    // Map to camelCase fields expected by client
+    const newVersionWithRelations: any = newVersionRaw
+      ? {
+          ...newVersionRaw,
+          curriculumPlans: newVersionRaw.curriculum_plans,
+          rentPlan: newVersionRaw.rent_plans,
+          capexItems: newVersionRaw.capex_items,
+          opexSubAccounts: newVersionRaw.opex_sub_accounts,
+          capexRules: newVersionRaw.capex_rules,
+          creator: newVersionRaw.users,
+          basedOn: newVersionRaw.versions,
+        }
+      : null;
 
     // Audit log
     await logAudit({

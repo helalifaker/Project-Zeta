@@ -25,7 +25,7 @@ const Simulation = dynamic(() => import('./Simulation').then(mod => ({ default: 
 });
 
 interface SimulationClientProps {
-  versions: VersionWithRelations[];
+  versions?: VersionWithRelations[];
   userRole?: string;
 }
 

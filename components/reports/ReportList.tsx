@@ -40,6 +40,13 @@ function isExpired(expiresAt: string): boolean {
   return new Date(expiresAt) < new Date();
 }
 
+function isExpiringSoon(expiresAt: string): boolean {
+  const expirationDate = new Date(expiresAt);
+  const now = new Date();
+  const daysUntilExpiration = Math.ceil((expirationDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  return daysUntilExpiration > 0 && daysUntilExpiration <= 7;
+}
+
 export function ReportList({ versions }: ReportListProps) {
   const { reports, filters, pagination, setFilters, setPagination, loading } = useReportsStore();
   const [selectedReport, setSelectedReport] = useState<ReportListItem | null>(null);
@@ -198,6 +205,7 @@ export function ReportList({ versions }: ReportListProps) {
                   <SelectItem value="all">All formats</SelectItem>
                   <SelectItem value="PDF">PDF</SelectItem>
                   <SelectItem value="EXCEL">Excel</SelectItem>
+                  <SelectItem value="CSV">CSV</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -261,9 +269,20 @@ export function ReportList({ versions }: ReportListProps) {
                         <TableCell>{formatFileSize(report.fileSize)}</TableCell>
                         <TableCell>
                           {expired ? (
-                            <Badge variant="destructive">Expired</Badge>
+                            <Badge variant="destructive" className="flex items-center gap-1">
+                              <span className="h-2 w-2 rounded-full bg-red-500" />
+                              Expired
+                            </Badge>
+                          ) : isExpiringSoon(report.expiresAt) ? (
+                            <Badge variant="outline" className="flex items-center gap-1 border-yellow-500 text-yellow-500">
+                              <span className="h-2 w-2 rounded-full bg-yellow-500" />
+                              Expiring Soon
+                            </Badge>
                           ) : (
-                            <Badge variant="default">Active</Badge>
+                            <Badge variant="default" className="flex items-center gap-1">
+                              <span className="h-2 w-2 rounded-full bg-green-500" />
+                              Active
+                            </Badge>
                           )}
                         </TableCell>
                         <TableCell>

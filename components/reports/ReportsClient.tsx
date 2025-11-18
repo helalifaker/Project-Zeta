@@ -21,15 +21,15 @@ const Reports = dynamic(() => import('./Reports').then(mod => ({ default: mod.Re
 });
 
 interface ReportsClientProps {
-  initialReports: ReportListItem[];
-  initialPagination: {
+  initialReports?: ReportListItem[];
+  initialPagination?: {
     page: number;
     limit: number;
     total: number;
     totalPages: number;
   };
-  versions: Array<{ id: string; name: string }>;
-  userRole: string;
+  versions?: Array<{ id: string; name: string }>;
+  userRole?: string;
 }
 
 export function ReportsClient({ initialReports, initialPagination, versions, userRole }: ReportsClientProps): JSX.Element {

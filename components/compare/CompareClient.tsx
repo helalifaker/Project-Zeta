@@ -22,10 +22,11 @@ const Compare = dynamic(() => import('./Compare').then(mod => ({ default: mod.Co
 });
 
 interface CompareClientProps {
-  versions: VersionWithRelations[];
+  versions?: VersionWithRelations[];
 }
 
 export function CompareClient({ versions }: CompareClientProps): JSX.Element {
-  return <Compare versions={versions} />;
+  // Only pass versions prop if it's defined (TypeScript strict mode compatibility)
+  return versions ? <Compare versions={versions} /> : <Compare />;
 }
 

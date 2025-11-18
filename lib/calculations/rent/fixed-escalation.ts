@@ -1,14 +1,21 @@
 /**
  * Fixed Escalation Rent Model
- * Calculates rent with a fixed annual escalation rate
+ * Calculates rent with a fixed escalation rate applied every N years
  *
- * Formula: rent(t) = base_rent × (1 + escalation_rate)^(t - start_year)
+ * Formula: rent(t) = base_rent × (1 + escalation_rate)^escalations
+ * Where escalations = floor((year - start_year) / frequency)
  *
  * @example
- * Base rent: 1M SAR, Escalation: 4%, Start year: 2028
+ * Base rent: 1M SAR, Escalation: 4%, Frequency: 1 year, Start year: 2028
  * Year 2028: 1M × (1.04)^0 = 1M
  * Year 2029: 1M × (1.04)^1 = 1.04M
  * Year 2030: 1M × (1.04)^2 = 1.0816M
+ *
+ * @example
+ * Base rent: 1M SAR, Escalation: 3%, Frequency: 2 years, Start year: 2028
+ * Years 2028-2029: 1M × (1.03)^0 = 1M (no escalation)
+ * Years 2030-2031: 1M × (1.03)^1 = 1.03M (first escalation)
+ * Years 2032-2033: 1M × (1.03)^2 = 1.0609M (second escalation)
  */
 
 import Decimal from 'decimal.js';
@@ -19,6 +26,7 @@ import { success, error } from '@/types/result';
 export interface FixedEscalationParams {
   baseRent: Decimal | number | string;
   escalationRate: Decimal | number | string; // e.g., 0.04 for 4%
+  frequency?: number; // Apply escalation every N years (1, 2, 3, 4, or 5), optional, default 1
   startYear: number;
   endYear: number;
 }
@@ -36,11 +44,13 @@ export function calculateFixedEscalationRentForYear(
   baseRent: Decimal | number | string,
   escalationRate: Decimal | number | string,
   startYear: number,
-  year: number
+  year: number,
+  frequency: number = 1
 ): Result<Decimal> {
   try {
     const base = toDecimal(baseRent);
     const rate = toDecimal(escalationRate);
+    const freq = frequency ?? 1;
     const yearsFromStart = year - startYear;
 
     // Validate inputs
@@ -56,8 +66,16 @@ export function calculateFixedEscalationRentForYear(
       return error('Year must be >= start year');
     }
 
-    // Calculate: base_rent × (1 + escalation_rate)^years
-    const escalationFactor = Decimal.add(1, rate).pow(yearsFromStart);
+    // Validate frequency (1, 2, 3, 4, or 5)
+    if (![1, 2, 3, 4, 5].includes(freq)) {
+      return error('Frequency must be 1, 2, 3, 4, or 5 years');
+    }
+
+    // Calculate number of escalations: floor(yearsFromStart / frequency)
+    const escalations = Math.floor(yearsFromStart / freq);
+
+    // Calculate: base_rent × (1 + escalation_rate)^escalations
+    const escalationFactor = Decimal.add(1, rate).pow(escalations);
     const rent = base.times(escalationFactor);
 
     return success(rent);
@@ -68,12 +86,13 @@ export function calculateFixedEscalationRentForYear(
 
 /**
  * Calculate rent for multiple years using fixed escalation
+ * Supports optional frequency parameter to apply escalation every N years
  */
 export function calculateFixedEscalationRent(
   params: FixedEscalationParams
 ): Result<FixedEscalationResult[]> {
   try {
-    const { baseRent, escalationRate, startYear, endYear } = params;
+    const { baseRent, escalationRate, frequency = 1, startYear, endYear } = params;
 
     // Validate year range
     if (startYear > endYear) {
@@ -86,6 +105,7 @@ export function calculateFixedEscalationRent(
 
     const base = toDecimal(baseRent);
     const rate = toDecimal(escalationRate);
+    const freq = frequency ?? 1;
 
     // Validate inputs
     if (base.isNegative() || base.isZero()) {
@@ -96,12 +116,19 @@ export function calculateFixedEscalationRent(
       return error('Escalation rate cannot be negative');
     }
 
+    // Validate frequency (1, 2, 3, 4, or 5)
+    if (![1, 2, 3, 4, 5].includes(freq)) {
+      return error('Frequency must be 1, 2, 3, 4, or 5 years');
+    }
+
     const results: FixedEscalationResult[] = [];
     const escalationFactorBase = Decimal.add(1, rate);
 
     for (let year = startYear; year <= endYear; year++) {
       const yearsFromStart = year - startYear;
-      const escalationFactor = escalationFactorBase.pow(yearsFromStart);
+      // Calculate number of escalations: floor(yearsFromStart / frequency)
+      const escalations = Math.floor(yearsFromStart / freq);
+      const escalationFactor = escalationFactorBase.pow(escalations);
       const rent = base.times(escalationFactor);
 
       results.push({

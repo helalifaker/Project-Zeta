@@ -40,13 +40,20 @@ export interface AdminSettings {
  */
 export async function getAdminSettings(): Promise<Result<AdminSettings>> {
   try {
-    const settings = await prisma.adminSetting.findMany({
+    const queryStart = performance.now();
+    const settings = await prisma.admin_settings.findMany({
       where: {
         key: {
           in: ['cpiRate', 'discountRate', 'taxRate', 'currency', 'timezone', 'dateFormat', 'numberFormat'],
         },
       },
     });
+    const queryTime = performance.now() - queryStart;
+    
+    // Log performance (query time only - network latency is separate)
+    if (queryTime > 100) {
+      console.warn(`⚠️ Settings query slow: ${queryTime.toFixed(0)}ms (target: <100ms)`);
+    }
 
     // Transform to object
     const settingsMap: Partial<AdminSettings> = {};
@@ -94,7 +101,7 @@ export async function getAdminSettings(): Promise<Result<AdminSettings>> {
  */
 export async function getSetting(key: AdminSettingKey): Promise<Result<unknown>> {
   try {
-    const setting = await prisma.adminSetting.findUnique({
+    const setting = await prisma.admin_settings.findUnique({
       where: { key },
     });
 
@@ -122,7 +129,7 @@ export async function updateAdminSettings(
     // Update each setting
     for (const [key, value] of Object.entries(updates)) {
       if (value !== undefined) {
-        await prisma.adminSetting.upsert({
+        await prisma.admin_settings.upsert({
           where: { key },
           update: {
             value: value as Prisma.InputJsonValue,

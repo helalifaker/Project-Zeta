@@ -38,7 +38,7 @@ export async function updateVersion(
     }
 
     // Check if version exists and get current status
-    const existingVersion = await prisma.version.findUnique({
+    const existingVersion = await prisma.versions.findUnique({
       where: { id },
       select: {
         id: true,
@@ -65,7 +65,7 @@ export async function updateVersion(
 
     // Check for duplicate name if name is being updated
     if (data.name && data.name !== existingVersion.name) {
-      const duplicateCheck = await prisma.version.findUnique({
+      const duplicateCheck = await prisma.versions.findUnique({
         where: {
           name_createdBy: {
             name: data.name,
@@ -80,7 +80,7 @@ export async function updateVersion(
     }
 
     // Update version
-    const updatedVersion = await prisma.version.update({
+    const updatedVersion = await prisma.versions.update({
       where: { id },
       data: {
         ...(data.name && { name: data.name }),

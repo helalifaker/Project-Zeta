@@ -25,7 +25,7 @@ const TuitionSimulator = dynamic(() => import('./TuitionSimulator').then(mod => 
 });
 
 interface TuitionSimulatorClientProps {
-  versions: VersionWithRelations[];
+  versions?: VersionWithRelations[];
 }
 
 export function TuitionSimulatorClient({ versions }: TuitionSimulatorClientProps): JSX.Element {

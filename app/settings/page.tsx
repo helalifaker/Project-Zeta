@@ -1,19 +1,19 @@
 /**
- * Settings Page (Server Component)
- * Admin-only settings page with role check
+ * Settings Page
+ * Server component - INSTANT LOAD with client-side data streaming
  */
 
 import { redirect } from 'next/navigation';
 import { auth } from '@/lib/auth/config';
 import { Settings } from '@/components/settings/Settings';
-import { getAdminSettings } from '@/services/admin/settings';
-import { listUsers } from '@/services/admin/users';
-import { listAuditLogs } from '@/services/admin/audit';
-import { getSystemHealth } from '@/services/admin/health';
 import { AuthenticatedLayout } from '@/components/layout/AuthenticatedLayout';
 
+// Disable caching for real-time data
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export default async function SettingsPage(): Promise<JSX.Element> {
-  // Check authentication and role
+  // Only check auth and role - NO database queries (instant load!)
   const session = await auth();
 
   if (!session?.user) {
@@ -25,14 +25,7 @@ export default async function SettingsPage(): Promise<JSX.Element> {
     redirect('/dashboard');
   }
 
-  // Fetch initial data in parallel
-  const [settingsResult, usersResult, auditLogsResult, healthResult] = await Promise.all([
-    getAdminSettings(),
-    listUsers({ page: 1, limit: 20 }, session.user.id),
-    listAuditLogs({ page: 1, limit: 20 }),
-    getSystemHealth(),
-  ]);
-
+  // Page loads INSTANTLY - data loads on client side
   return (
     <AuthenticatedLayout>
       <div className="container mx-auto py-8">
@@ -43,14 +36,7 @@ export default async function SettingsPage(): Promise<JSX.Element> {
           </p>
         </div>
 
-        <Settings
-          initialSettings={settingsResult.success ? settingsResult.data : null}
-          initialUsers={usersResult.success ? usersResult.data.users : []}
-          initialUsersTotal={usersResult.success ? usersResult.data.total : 0}
-          initialAuditLogs={auditLogsResult.success ? auditLogsResult.data.logs : []}
-          initialAuditLogsTotal={auditLogsResult.success ? auditLogsResult.data.total : 0}
-          initialSystemHealth={healthResult.success ? healthResult.data : null}
-        />
+        <Settings />
       </div>
     </AuthenticatedLayout>
   );

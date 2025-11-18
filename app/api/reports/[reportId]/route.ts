@@ -37,7 +37,7 @@ export async function DELETE(
     const { reportId } = await params;
 
     // Fetch report
-    const report = await prisma.report.findUnique({
+    const report = await prisma.reports.findUnique({
       where: { id: reportId },
     });
 
@@ -57,7 +57,7 @@ export async function DELETE(
     }
 
     // Soft delete (set deletedAt)
-    await prisma.report.update({
+    await prisma.reports.update({
       where: { id: reportId },
       data: {
         deletedAt: new Date(),

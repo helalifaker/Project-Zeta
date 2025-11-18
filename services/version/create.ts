@@ -20,6 +20,11 @@ export type VersionWithRelations = Version & {
     tuitionBase: Prisma.Decimal;
     cpiFrequency: number;
     studentsProjection: unknown;
+    teacherRatio: Prisma.Decimal | null;
+    nonTeacherRatio: Prisma.Decimal | null;
+    teacherMonthlySalary: Prisma.Decimal | null;
+    nonTeacherMonthlySalary: Prisma.Decimal | null;
+    tuitionGrowthRate: Prisma.Decimal | null;
     createdAt: Date;
     updatedAt: Date;
   }>;
@@ -38,6 +43,17 @@ export type VersionWithRelations = Version & {
     category: string;
     amount: Prisma.Decimal;
     description: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }>;
+  capexRules?: Array<{
+    id: string;
+    versionId: string;
+    category: string;
+    cycleYears: number;
+    baseCost: Prisma.Decimal;
+    startingYear: number;
+    inflationIndex: string | null;
     createdAt: Date;
     updatedAt: Date;
   }>;
@@ -88,14 +104,20 @@ export async function createVersion(
   userId: string
 ): Promise<Result<VersionWithRelations>> {
   try {
-    // Validate curriculum plans have both FR and IB
+    // Validate curriculum plans: FR is required, IB is optional
     const curriculumTypes = data.curriculumPlans.map((cp) => cp.curriculumType);
-    if (!curriculumTypes.includes('FR') || !curriculumTypes.includes('IB')) {
-      return error('Must include both FR and IB curriculum plans', 'VALIDATION_ERROR');
+    if (!curriculumTypes.includes('FR')) {
+      return error('FR curriculum plan is required', 'VALIDATION_ERROR');
+    }
+
+    // IB is optional - check for duplicates if present
+    const ibCount = curriculumTypes.filter(t => t === 'IB').length;
+    if (ibCount > 1) {
+      return error('IB curriculum plan can only appear once', 'VALIDATION_ERROR');
     }
 
     // Check for duplicate name (unique per user)
-    const existingVersion = await prisma.version.findUnique({
+    const existingVersion = await prisma.versions.findUnique({
       where: {
         name_createdBy: {
           name: data.name,
@@ -111,7 +133,7 @@ export async function createVersion(
     // Create version with all relationships in a transaction
     const version = await prisma.$transaction(async (tx) => {
       // 1. Create version
-      const newVersion = await tx.version.create({
+      const newVersion = await tx.versions.create({
         data: {
           name: data.name,
           ...(data.description !== undefined && { description: data.description }),
@@ -123,7 +145,7 @@ export async function createVersion(
       });
 
       // 2. Create curriculum plans (FR + IB)
-      await tx.curriculumPlan.createMany({
+      await tx.curriculum_plans.createMany({
         data: data.curriculumPlans.map((cp) => ({
           versionId: newVersion.id,
           curriculumType: cp.curriculumType,
@@ -135,7 +157,7 @@ export async function createVersion(
       });
 
       // 3. Create rent plan
-      await tx.rentPlan.create({
+      await tx.rent_plans.create({
         data: {
           versionId: newVersion.id,
           rentModel: data.rentPlan.rentModel,
@@ -147,11 +169,11 @@ export async function createVersion(
     });
 
     // Fetch created version with relationships
-    const createdVersion = await prisma.version.findUnique({
+    const createdVersion = await prisma.versions.findUnique({
       where: { id: version.id },
       include: {
-        curriculumPlans: true,
-        rentPlan: true,
+        curriculum_plans: true,
+        rent_plans: true,
         capexItems: true,
         opexSubAccounts: true,
         creator: {

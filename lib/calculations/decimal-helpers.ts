@@ -10,12 +10,39 @@ Decimal.set({ precision: 20, rounding: Decimal.ROUND_HALF_UP });
 
 /**
  * Convert number or string to Decimal
+ * Handles null/undefined by returning zero
+ * Handles NaN by returning zero (prevents NaN propagation)
  */
-export function toDecimal(value: number | string | Decimal): Decimal {
+export function toDecimal(value: number | string | Decimal | null | undefined): Decimal {
   if (value instanceof Decimal) {
+    // If Decimal is already NaN, return zero
+    if (value.isNaN()) {
+      return new Decimal(0);
+    }
     return value;
   }
-  return new Decimal(value);
+  if (value === null || value === undefined) {
+    return new Decimal(0);
+  }
+  // Handle NaN numbers
+  if (typeof value === 'number' && (Number.isNaN(value) || !Number.isFinite(value))) {
+    return new Decimal(0);
+  }
+  // Handle NaN strings
+  if (typeof value === 'string' && (value.toLowerCase() === 'nan' || value === '')) {
+    return new Decimal(0);
+  }
+  try {
+    const decimal = new Decimal(value);
+    // Double-check the result isn't NaN
+    if (decimal.isNaN()) {
+      return new Decimal(0);
+    }
+    return decimal;
+  } catch {
+    // If Decimal constructor fails, return zero
+    return new Decimal(0);
+  }
 }
 
 /**

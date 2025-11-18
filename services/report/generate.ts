@@ -5,6 +5,7 @@
 
 import { generateExecutiveSummaryPDF, generateFinancialDetailPDF, generateComparisonPDF } from '@/lib/reports/templates';
 import { generateExecutiveSummaryExcel, generateFinancialDetailExcel, generateComparisonExcel } from '@/lib/reports/excel/generate';
+import { generateCSV, generateComparisonCSV } from '@/lib/reports/csv/generate';
 import type { VersionWithRelations } from '@/services/version';
 import type { FullProjectionResult } from '@/lib/calculations/financial/projection';
 import { ReportType, ReportFormat } from '@prisma/client';
@@ -71,7 +72,7 @@ export async function generateReport(
       }
 
       file = await renderToBuffer(pdfDoc);
-    } else {
+    } else if (format === 'EXCEL') {
       // Generate Excel
       let workbook: ExcelJS.Workbook;
 
@@ -103,6 +104,39 @@ export async function generateReport(
       // Convert workbook to buffer
       const buffer = await workbook.xlsx.writeBuffer();
       file = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+    } else if (format === 'CSV') {
+      // Generate CSV
+      let csvContent: string;
+
+      if (reportType === 'EXECUTIVE_SUMMARY') {
+        csvContent = generateCSV(version, projection, options);
+        fileName = `executive-summary-${versionName}-${timestamp}.csv`;
+      } else if (reportType === 'FINANCIAL_DETAIL') {
+        csvContent = generateCSV(version, projection, options);
+        fileName = `financial-detail-${versionName}-${timestamp}.csv`;
+      } else if (reportType === 'COMPARISON') {
+        if (!params.compareVersions || !params.compareProjections) {
+          return {
+            success: false,
+            error: 'Comparison reports require compareVersions and compareProjections',
+          };
+        }
+        csvContent = generateComparisonCSV(
+          version,
+          projection,
+          params.compareVersions,
+          params.compareProjections,
+          options
+        );
+        fileName = `comparison-${versionName}-${timestamp}.csv`;
+      } else {
+        return { success: false, error: 'Invalid report type' };
+      }
+
+      // Convert CSV string to buffer
+      file = Buffer.from(csvContent, 'utf-8');
+    } else {
+      return { success: false, error: 'Invalid report format' };
     }
 
     return {

@@ -71,7 +71,7 @@ export function VersionTable({ versions }: VersionTableProps) {
               {version.mode === 'RELOCATION_2028' ? 'Relocation' : 'Historical'}
             </TableCell>
             <TableCell className="text-muted-foreground">
-              {version.creator.name || version.creator.email}
+              {version.creator?.name || version.creator?.email || 'Unknown'}
             </TableCell>
             <TableCell className="text-muted-foreground">
               {formatDate(version.createdAt)}

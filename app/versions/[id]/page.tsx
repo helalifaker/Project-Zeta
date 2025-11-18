@@ -1,15 +1,15 @@
 /**
  * Version Detail Page
- * Server component for displaying version details
+ * Server component - INSTANT LOAD with client-side data streaming
  */
 
-import { redirect, notFound } from 'next/navigation';
-import { auth } from '@/lib/auth/config';
-import { VersionDetail } from '@/components/versions/VersionDetail';
-import { Card } from '@/components/ui/card';
-import { AuthenticatedLayout } from '@/components/layout/AuthenticatedLayout';
-import { getVersionById } from '@/services/version/read';
-import { serializeVersionForClient } from '@/lib/utils/serialize';
+import { notFound } from 'next/navigation';
+import { use } from 'react';
+import { VersionDetailPageClient } from '@/components/versions/VersionDetailPageClient';
+
+// Disable caching for real-time data
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 interface VersionDetailPageProps {
   params: Promise<{
@@ -17,54 +17,32 @@ interface VersionDetailPageProps {
   }>;
 }
 
-export default async function VersionDetailPage({ params }: VersionDetailPageProps) {
-  // Authentication required
-  const session = await auth();
+export default function VersionDetailPage({ params }: VersionDetailPageProps): JSX.Element {
+  console.log('🔍 VersionDetailPage rendering...');
+  
+  // Middleware handles auth - no need to check here
+  // Use React's use() hook for async params (Next.js 15 recommended)
+  // IMPORTANT: Cannot wrap use() in try/catch - it uses Suspense internally
+  const resolvedParams = use(params);
+  const id = resolvedParams?.id;
+  
+  console.log('✅ Params resolved:', { id, type: typeof id });
 
-  if (!session || !session.user) {
-    redirect('/auth/signin?callbackUrl=/versions');
+  if (!id || typeof id !== 'string') {
+    console.error('❌ Invalid ID:', { id, type: typeof id });
+    notFound();
   }
-
-  const { id } = await params;
-  const userId = session.user.id;
-  const userRole = session.user.role;
 
   // Validate UUID format
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!uuidRegex.test(id)) {
+    console.error(`❌ Invalid UUID format: ${id}`);
     notFound();
   }
 
-  // Fetch version using service layer (direct database access)
-  const result = await getVersionById(id, userId, userRole);
-
-  if (!result.success) {
-    if (result.code === 'NOT_FOUND') {
-      notFound();
-    }
-
-    return (
-      <AuthenticatedLayout>
-        <div className="container mx-auto py-6 px-4">
-          <Card className="p-6">
-            <div className="text-destructive">
-              {result.error || 'Failed to load version. Please try again later.'}
-            </div>
-          </Card>
-        </div>
-      </AuthenticatedLayout>
-    );
-  }
-
-  // Serialize version data for Client Component (convert Decimal to number)
-  const serializedVersion = serializeVersionForClient(result.data);
-
-  return (
-    <AuthenticatedLayout>
-      <div className="container mx-auto py-6 px-4">
-        <VersionDetail version={serializedVersion} />
-      </div>
-    </AuthenticatedLayout>
-  );
+  console.log('✅ Rendering VersionDetailPageClient with ID:', id);
+  
+  // Page loads INSTANTLY - data loads on client side
+  return <VersionDetailPageClient versionId={id} />;
 }
 

@@ -5,9 +5,10 @@
 
 'use client';
 
-import { useEffect, useMemo, useCallback } from 'react';
+import { useEffect, useMemo, useCallback, useState, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
 import { ParametersPanel } from './ParametersPanel';
 import { OutputsPanel } from './OutputsPanel';
 import { ComparisonPanel } from './ComparisonPanel';
@@ -18,8 +19,8 @@ import type { FullProjectionParams } from '@/lib/calculations/financial/projecti
 import { toWorkerNumber } from '@/lib/utils/worker-serialize';
 
 interface SimulationProps {
-  versions: VersionWithRelations[];
-  userRole: string;
+  versions?: VersionWithRelations[];
+  userRole?: string;
 }
 
 /**
@@ -79,7 +80,7 @@ function buildProjectionParams(
   };
 }
 
-export function Simulation({ versions, userRole }: SimulationProps) {
+export function Simulation({ versions: initialVersions, userRole = 'VIEWER' }: SimulationProps) {
   const {
     baseVersionId,
     setBaseVersionId,
@@ -97,25 +98,135 @@ export function Simulation({ versions, userRole }: SimulationProps) {
   const { calculate, loading: calculationLoading, error: calculationError, projection: calculatedProjection } =
     useFinancialCalculation();
 
-  // Initialize with first version if available
-  useEffect(() => {
-    if (versions.length > 0 && !baseVersionId && versions[0]) {
-      setBaseVersionId(versions[0].id);
-      setBaseVersion(versions[0]);
-      initializeParameters(versions[0]);
-    }
-  }, [versions, baseVersionId, setBaseVersionId, setBaseVersion, initializeParameters]);
+  // Local state for versions
+  const [lightVersions, setLightVersions] = useState<Array<{ id: string; name: string }>>([]);
+  const [versions, setVersionsState] = useState<VersionWithRelations[]>(initialVersions || []);
+  const [versionsLoading, setVersionsLoading] = useState(!initialVersions);
+  const [versionDetailsCache, setVersionDetailsCache] = useState<Map<string, VersionWithRelations>>(new Map());
+  
+  // Track if versions have been fetched to prevent duplicate fetches (React Strict Mode)
+  const versionsFetchedRef = useRef(false);
 
-  // Update parameters when version changes
+  // Fetch lightweight list of versions (FAST - no details)
+  useEffect(() => {
+    if (initialVersions) {
+      setVersionsState(initialVersions);
+      setLightVersions(initialVersions.map(v => ({ id: v.id, name: v.name })));
+      setVersionsLoading(false);
+      return;
+    }
+
+    // Prevent duplicate fetches (React Strict Mode runs effects twice in development)
+    if (versionsFetchedRef.current) {
+      return;
+    }
+    versionsFetchedRef.current = true;
+
+    console.log('📡 Fetching versions list (lightweight)...');
+    const fetchStart = performance.now();
+
+    fetch('/api/versions?page=1&limit=100&lightweight=true')
+      .then(response => response.json())
+      .then(data => {
+        const fetchTime = performance.now() - fetchStart;
+        console.log(`✅ Versions list loaded in ${fetchTime.toFixed(0)}ms`);
+        
+        if (data.success && data.data?.versions) {
+          const lightList = data.data.versions.map((v: any) => ({
+            id: v.id,
+            name: v.name,
+          }));
+          setLightVersions(lightList);
+        }
+        setVersionsLoading(false);
+      })
+      .catch(error => {
+        console.error('❌ Failed to fetch versions:', error);
+        setVersionsLoading(false);
+      });
+  }, [initialVersions]);
+
+  // Fetch full details for selected version ONLY (lazy loading)
+  useEffect(() => {
+    if (!baseVersionId || lightVersions.length === 0) {
+      return;
+    }
+
+    // Check if already in cache or state
+    const versionInState = versions.find(v => v.id === baseVersionId);
+    if (versionInState && 'curriculumPlans' in versionInState && Array.isArray((versionInState as VersionWithRelations).curriculumPlans)) {
+      return; // Already have full details
+    }
+
+    if (versionDetailsCache.has(baseVersionId)) {
+      const cached = versionDetailsCache.get(baseVersionId)!;
+      setVersionsState(prev => {
+        const index = prev.findIndex(v => v.id === baseVersionId);
+        if (index >= 0) {
+          const updated = [...prev];
+          updated[index] = cached;
+          return updated;
+        }
+        return [...prev, cached];
+      });
+      return;
+    }
+
+    // Fetch full details
+    console.log(`📡 Fetching full details for selected version...`);
+    const fetchStart = performance.now();
+
+    fetch(`/api/versions/${baseVersionId}`)
+      .then(res => res.json())
+      .then(detail => {
+        const fetchTime = performance.now() - fetchStart;
+        console.log(`✅ Full details loaded in ${fetchTime.toFixed(0)}ms`);
+        
+        if (detail.success && detail.data) {
+          const detailedVersion = detail.data as VersionWithRelations;
+          
+          // Update cache
+          setVersionDetailsCache(prev => new Map(prev).set(baseVersionId, detailedVersion));
+          
+          // Update state
+          setVersionsState(prev => {
+            const index = prev.findIndex(v => v.id === baseVersionId);
+            if (index >= 0) {
+              const updated = [...prev];
+              updated[index] = detailedVersion;
+              return updated;
+            }
+            return [...prev, detailedVersion];
+          });
+        }
+      })
+      .catch(error => {
+        console.error('❌ Failed to fetch version details:', error);
+      });
+  }, [baseVersionId, lightVersions, versionDetailsCache, versions]);
+
+  // Initialize with first version if available (use lightVersions for initial selection)
+  useEffect(() => {
+    if (lightVersions.length > 0 && !baseVersionId && lightVersions[0]) {
+      setBaseVersionId(lightVersions[0].id);
+    }
+  }, [lightVersions, baseVersionId]);
+
+  // Update parameters when version with full details is available
   useEffect(() => {
     if (baseVersionId && versions.length > 0) {
-      const version = versions.find((v) => v.id === baseVersionId);
-      if (version) {
+      const version = versions.find((v) => 
+        v.id === baseVersionId && 
+        'curriculumPlans' in v && 
+        Array.isArray((v as VersionWithRelations).curriculumPlans)
+      ) as VersionWithRelations | undefined;
+      
+      if (version && version !== baseVersion) {
         setBaseVersion(version);
         initializeParameters(version);
       }
     }
-  }, [baseVersionId, versions, setBaseVersion, initializeParameters]);
+  }, [baseVersionId, versions, baseVersion, setBaseVersion, initializeParameters]);
 
   // Calculate base projection when version loads
   useEffect(() => {
@@ -201,6 +312,23 @@ export function Simulation({ versions, userRole }: SimulationProps) {
     }
   };
 
+  // Show skeleton while versions are loading
+  if (versionsLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-10 w-64" />
+          <Skeleton className="h-10 w-48" />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <Skeleton className="h-screen" />
+          <Skeleton className="h-screen" />
+          <Skeleton className="h-screen" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header with Version Selector */}
@@ -219,7 +347,7 @@ export function Simulation({ versions, userRole }: SimulationProps) {
             <SelectValue placeholder="Select base version" />
           </SelectTrigger>
           <SelectContent>
-            {versions.map((version) => (
+            {(lightVersions.length > 0 ? lightVersions : versions.map(v => ({ id: v.id, name: v.name }))).map((version) => (
               <SelectItem key={version.id} value={version.id}>
                 {version.name}
               </SelectItem>
@@ -228,7 +356,7 @@ export function Simulation({ versions, userRole }: SimulationProps) {
         </Select>
       </div>
 
-      {versions.length === 0 ? (
+      {lightVersions.length === 0 ? (
         <Card>
           <CardContent className="p-12 text-center text-muted-foreground">
             No versions available. Create a version to use the simulation sandbox.

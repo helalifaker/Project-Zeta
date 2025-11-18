@@ -27,33 +27,51 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           // Test database connection first
           await prisma.$connect();
           
-          // Find user by email
-          const user = await prisma.user.findUnique({
-            where: { email: credentials.email as string },
+          // Normalize email and perform case-insensitive lookup
+          const rawEmail = String(credentials.email);
+          const rawPassword = String(credentials.password);
+          const normalizedEmail = rawEmail.trim().toLowerCase();
+          const normalizedPassword = rawPassword.trim();
+          console.log('Auth: Attempting sign-in', {
+            rawEmail,
+            normalizedEmail,
+            passwordLength: rawPassword.length,
+            normalizedPasswordLength: normalizedPassword.length,
           });
 
+          // Find user by email (case-insensitive) using a parameterized raw query
+          const rows = await prisma.$queryRaw<
+            {
+              id: string;
+              email: string;
+              password: string | null;
+              name: string | null;
+              role: Role;
+              image: string | null;
+            }[]
+          >`SELECT id, email, password, name, role, image FROM "users" WHERE lower(email) = lower(${normalizedEmail}) LIMIT 1`;
+
+          const user = rows[0] ?? null;
+
           if (!user) {
-            console.error('Auth: User not found:', credentials.email);
+            console.error('Auth: User not found (case-insensitive lookup):', normalizedEmail);
             return null;
           }
 
           if (!user.password) {
-            console.error('Auth: User has no password:', credentials.email);
+            console.error('Auth: User has no password:', user.email);
             return null;
           }
 
           // Verify password
-          const isValid = await bcrypt.compare(
-            credentials.password as string,
-            user.password
-          );
+          const isValid = await bcrypt.compare(normalizedPassword, user.password);
 
           if (!isValid) {
-            console.error('Auth: Invalid password for:', credentials.email);
+            console.error('Auth: Invalid password for:', user.email);
             return null;
           }
 
-          console.log('Auth: Successfully authenticated:', credentials.email);
+          console.log('Auth: Successfully authenticated:', user.email);
 
           // Return user object (will be available in session)
           return {

@@ -59,14 +59,14 @@ export function VersionCard({ version }: VersionCardProps) {
             </div>
             <div className="text-muted-foreground text-xs">
               <div>
-                Created by {version.creator.name || version.creator.email}
+                Created by {version.creator?.name || version.creator?.email || 'Unknown'}
               </div>
               <div>
                 {formatDate(version.createdAt)}
               </div>
               {version._count && (
                 <div>
-                  {version._count.curriculumPlans} curriculum plan{version._count.curriculumPlans !== 1 ? 's' : ''}
+                  {version._count.curriculumPlans || 0} curriculum plan{(version._count.curriculumPlans || 0) !== 1 ? 's' : ''}
                 </div>
               )}
             </div>

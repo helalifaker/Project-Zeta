@@ -8,7 +8,7 @@ import { CurriculumType } from '@prisma/client';
 
 export const CurriculumPlanSchema = z.object({
   curriculumType: z.nativeEnum(CurriculumType),
-  capacity: z.number().int().positive('Capacity must be positive').max(10000, 'Capacity cannot exceed 10,000 students'),
+  capacity: z.number().int().min(0, 'Capacity cannot be negative').max(10000, 'Capacity cannot exceed 10,000 students'),
   tuitionBase: z.number().positive('Tuition must be positive').finite().max(1000000, 'Tuition cannot exceed 1,000,000 SAR'),
   cpiFrequency: z.number().int().min(1).max(3, 'CPI frequency must be 1, 2, or 3 years'),
   studentsProjection: z.array(

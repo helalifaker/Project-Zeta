@@ -37,7 +37,7 @@ export async function GET(
     const { reportId } = await params;
 
     // Fetch report
-    const report = await prisma.report.findUnique({
+    const report = await prisma.reports.findUnique({
       where: { id: reportId },
     });
 

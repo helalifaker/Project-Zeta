@@ -54,24 +54,25 @@ function calculateBreakevenYear(years: FullProjectionResult['years']): number | 
 }
 
 function transformVersionToProjectionParams(version: VersionWithRelations) {
-  if (!version || !version.rentPlan || version.curriculumPlans.length < 2) {
+  if (!version || !version.rentPlan || version.curriculumPlans.length < 1) {
     return null;
   }
 
   const frPlan = version.curriculumPlans.find((cp: { curriculumType: string }) => cp.curriculumType === 'FR');
-  const ibPlan = version.curriculumPlans.find((cp: { curriculumType: string }) => cp.curriculumType === 'IB');
-
-  if (!frPlan || !ibPlan) {
+  if (!frPlan) {
     return null;
   }
+
+  const ibPlan = version.curriculumPlans.find((cp: { curriculumType: string }) => cp.curriculumType === 'IB');
+  const isIBEnabled = ibPlan && ibPlan.capacity > 0;
 
   const frStudentsProjection = (
     frPlan.studentsProjection as Array<{ year: number; students: number }>
   ).map((sp) => ({ year: sp.year, students: sp.students }));
 
-  const ibStudentsProjection = (
-    ibPlan.studentsProjection as Array<{ year: number; students: number }>
-  ).map((sp) => ({ year: sp.year, students: sp.students }));
+  const ibStudentsProjection = isIBEnabled && ibPlan
+    ? (ibPlan.studentsProjection as Array<{ year: number; students: number }>).map((sp) => ({ year: sp.year, students: sp.students }))
+    : [];
 
   const adminSettings = {
     cpiRate: toDecimal(0.03),
@@ -95,23 +96,29 @@ function transformVersionToProjectionParams(version: VersionWithRelations) {
     fixedAmount: account.fixedAmount !== null ? toDecimal(account.fixedAmount) : null,
   }));
 
+  const curriculumPlans = [
+    {
+      curriculumType: 'FR' as const,
+      capacity: frPlan.capacity,
+      tuitionBase: toDecimal(frPlan.tuitionBase),
+      cpiFrequency: frPlan.cpiFrequency as 1 | 2 | 3,
+      studentsProjection: frStudentsProjection,
+    },
+  ];
+
+  // Only include IB if enabled
+  if (isIBEnabled && ibPlan) {
+    curriculumPlans.push({
+      curriculumType: 'IB' as const,
+      capacity: ibPlan.capacity,
+      tuitionBase: toDecimal(ibPlan.tuitionBase),
+      cpiFrequency: ibPlan.cpiFrequency as 1 | 2 | 3,
+      studentsProjection: ibStudentsProjection,
+    });
+  }
+
   return {
-    curriculumPlans: [
-      {
-        curriculumType: 'FR' as const,
-        capacity: frPlan.capacity,
-        tuitionBase: toDecimal(frPlan.tuitionBase),
-        cpiFrequency: frPlan.cpiFrequency as 1 | 2 | 3,
-        studentsProjection: frStudentsProjection,
-      },
-      {
-        curriculumType: 'IB' as const,
-        capacity: ibPlan.capacity,
-        tuitionBase: toDecimal(ibPlan.tuitionBase),
-        cpiFrequency: ibPlan.cpiFrequency as 1 | 2 | 3,
-        studentsProjection: ibStudentsProjection,
-      },
-    ],
+    curriculumPlans,
     rentPlan: {
       rentModel: version.rentPlan.rentModel as 'FIXED_ESCALATION' | 'REVENUE_SHARE' | 'PARTNER_MODEL',
       parameters: version.rentPlan.parameters as Record<string, unknown>,

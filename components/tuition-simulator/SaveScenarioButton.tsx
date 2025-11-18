@@ -48,14 +48,18 @@ export function SaveScenarioButton({ version }: SaveScenarioButtonProps) {
       const frPlan = version.curriculumPlans.find((cp) => cp.curriculumType === 'FR');
       const ibPlan = version.curriculumPlans.find((cp) => cp.curriculumType === 'IB');
 
-      if (!frPlan || !ibPlan) {
-        alert('Version must have both FR and IB curriculum plans');
+      if (!frPlan) {
+        alert('Version must have FR curriculum plan');
         return;
       }
 
+      // IB is optional - only validate if present
+      const isIBEnabled = ibPlan && ibPlan.capacity > 0;
+      // Continue with save logic (IB can be missing/zero)
+
       // Calculate adjusted tuition bases
       const frBaseTuition = toDecimal(frPlan.tuitionBase);
-      const ibBaseTuition = toDecimal(ibPlan.tuitionBase);
+      const ibBaseTuition = isIBEnabled && ibPlan ? toDecimal(ibPlan.tuitionBase) : new Decimal(0);
       const adjustedFrTuition = frBaseTuition.times(1 + tuitionAdjustments.fr / 100);
       const adjustedIbTuition = ibBaseTuition.times(1 + tuitionAdjustments.ib / 100);
 

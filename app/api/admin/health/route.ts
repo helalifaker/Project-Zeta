@@ -6,6 +6,7 @@
 import { NextResponse } from 'next/server';
 import { requireRole } from '@/lib/auth/middleware';
 import { getSystemHealth } from '@/services/admin/health';
+import { getCacheHeaders } from '@/lib/cache/revalidate';
 
 /**
  * GET /api/admin/health
@@ -31,7 +32,12 @@ export async function GET(): Promise<Response> {
       );
     }
 
-    return NextResponse.json({ success: true, data: result.data });
+    // Cache health data for 30 seconds (balance between freshness and performance)
+    const headers = {
+      'Cache-Control': getCacheHeaders(30, 60), // 30s cache, 60s stale
+    };
+
+    return NextResponse.json({ success: true, data: result.data }, { headers });
   } catch (error) {
     console.error('Unexpected error in GET /api/admin/health:', error);
     return NextResponse.json(

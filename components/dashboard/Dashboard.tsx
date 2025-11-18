@@ -5,7 +5,7 @@
 
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -16,6 +16,7 @@ import { useFinancialCalculation } from '@/hooks/useFinancialCalculation';
 import { useDebounce } from '@/hooks/useDebounce';
 import { serializeVersionForClient } from '@/lib/utils/serialize';
 import { serializeRentPlanParametersForWorker } from '@/lib/utils/worker-serialize';
+import { cachedFetch } from '@/lib/utils/fetch-cache';
 import type { VersionWithRelations } from '@/services/version';
 import type { FullProjectionParams } from '@/lib/calculations/financial/projection';
 
@@ -41,14 +42,27 @@ const EnrollmentChart = dynamic(() => import('@/components/charts/EnrollmentChar
 });
 
 interface DashboardProps {
-  versions: VersionWithRelations[];
+  versions?: VersionWithRelations[]; // Optional - will fetch on client if not provided
 }
 
 /**
  * Transform version data to FullProjectionParams format
  */
 function versionToProjectionParams(version: VersionWithRelations): FullProjectionParams | null {
-  if (!version.rentPlan || version.curriculumPlans.length < 2) {
+  console.log('🔄 versionToProjectionParams called:', {
+    versionName: version.name,
+    hasRentPlan: !!version.rentPlan,
+    numCurriculumPlans: version.curriculumPlans?.length || 0,
+    curriculumTypes: version.curriculumPlans?.map(cp => cp.curriculumType) || [],
+  });
+
+  if (!version.rentPlan) {
+    console.error('❌ versionToProjectionParams: No rentPlan');
+    return null;
+  }
+
+  if (version.curriculumPlans.length < 2) {
+    console.error('❌ versionToProjectionParams: Less than 2 curriculum plans:', version.curriculumPlans.length);
     return null;
   }
 
@@ -56,7 +70,15 @@ function versionToProjectionParams(version: VersionWithRelations): FullProjectio
   const frPlan = version.curriculumPlans.find((cp) => cp.curriculumType === 'FR');
   const ibPlan = version.curriculumPlans.find((cp) => cp.curriculumType === 'IB');
 
+  console.log('🔍 Curriculum plans search:', {
+    hasFR: !!frPlan,
+    hasIB: !!ibPlan,
+    frPlan: frPlan ? { type: frPlan.curriculumType, capacity: frPlan.capacity } : null,
+    ibPlan: ibPlan ? { type: ibPlan.curriculumType, capacity: ibPlan.capacity } : null,
+  });
+
   if (!frPlan || !ibPlan) {
+    console.error('❌ versionToProjectionParams: Missing FR or IB plan', { hasFR: !!frPlan, hasIB: !!ibPlan });
     return null;
   }
 
@@ -204,7 +226,7 @@ function transformProjectionData(projection: NonNullable<ReturnType<typeof useFi
   };
 }
 
-export function Dashboard({ versions }: DashboardProps) {
+export function Dashboard({ versions: initialVersions }: DashboardProps) {
   const {
     selectedVersionId,
     setSelectedVersionId,
@@ -217,12 +239,103 @@ export function Dashboard({ versions }: DashboardProps) {
   const { calculate, loading: calculationLoading, error: calculationError, projection: calculatedProjection } =
     useFinancialCalculation();
   
+  // Client-side version loading
+  const [versions, setVersionsState] = useState<VersionWithRelations[]>(initialVersions || []);
+  const [versionsLoading, setVersionsLoading] = useState(!initialVersions);
+  
+  // Fetch versions on client side if not provided by server
+  useEffect(() => {
+    if (initialVersions) {
+      // Versions provided by server - use them
+      setVersionsState(initialVersions);
+      setVersionsLoading(false);
+      return;
+    }
+    
+    // Prevent duplicate fetches (React Strict Mode runs effects twice in development)
+    if (versionsFetchedRef.current) {
+      return;
+    }
+    versionsFetchedRef.current = true;
+    
+    // Fetch versions from API (lightweight for speed)
+    console.log('📡 Fetching versions from API (client-side - lightweight)...');
+    const fetchStart = performance.now();
+    
+    // Use cached fetch to prevent duplicate concurrent requests
+    cachedFetch('/api/versions?page=1&limit=10&lightweight=true')
+      .then(response => response.json())
+      .then(data => {
+        const fetchTime = performance.now() - fetchStart;
+        console.log(`✅ Versions loaded in ${fetchTime.toFixed(0)}ms`);
+        
+        if (data.success && data.data?.versions) {
+          const versionsList = data.data.versions;
+          setVersionsState(versionsList);
+          
+          // OPTIMIZATION: Pre-fetch first version's details immediately
+          // This eliminates the 1400ms wait after version selection
+          if (versionsList.length > 0 && versionsList[0]?.id) {
+            const firstVersionId = versionsList[0].id;
+            console.log('⚡ Pre-fetching first version details for instant display...');
+            
+            // Mark as fetching to prevent duplicate requests
+            fetchingRef.current.add(firstVersionId);
+            
+            // Fetch full details in background (don't block UI)
+            // Use cached fetch to prevent duplicate concurrent requests
+            cachedFetch(`/api/versions/${firstVersionId}`)
+              .then(async response => {
+                if (!response.ok) return null;
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) return null;
+                return response.json();
+              })
+              .then(versionData => {
+                if (versionData?.success && versionData?.data) {
+                  console.log('⚡ Pre-fetched version details cached');
+                  const serializedVersion = serializeVersionForClient(versionData.data);
+                  setVersionCache(prev => {
+                    const newCache = new Map(prev);
+                    newCache.set(firstVersionId, serializedVersion);
+                    return newCache;
+                  });
+                  setCacheVersion(v => v + 1);
+                  // Note: Auto-selection is handled by separate useEffect to avoid race conditions
+                }
+              })
+              .catch(error => {
+                console.warn('⚠️ Pre-fetch failed (non-critical):', error.message);
+              })
+              .finally(() => {
+                // Remove from fetching set when done
+                fetchingRef.current.delete(firstVersionId);
+              });
+          }
+        }
+        setVersionsLoading(false);
+      })
+      .catch(error => {
+        console.error('❌ Failed to fetch versions:', error);
+        setVersionsLoading(false);
+      });
+  }, [initialVersions]);
+  
   // Cache for loaded versions (to avoid re-fetching)
   // Initialize cache safely to avoid hydration issues
   const [versionCache, setVersionCache] = useState<Map<string, VersionWithRelations>>(() => {
     // Initialize empty map on first render only (SSR-safe)
     return new Map<string, VersionWithRelations>();
   });
+  
+  // Cache version counter to trigger re-renders when cache updates
+  const [cacheVersion, setCacheVersion] = useState(0);
+  
+  // Track in-flight fetches to prevent duplicate requests
+  const fetchingRef = useRef<Set<string>>(new Set());
+  
+  // Track if versions have been fetched to prevent duplicate fetches (React Strict Mode)
+  const versionsFetchedRef = useRef(false);
   
   // Initialize cache with provided versions once on mount
   const [cacheInitialized, setCacheInitialized] = useState(false);
@@ -235,6 +348,7 @@ export function Dashboard({ versions }: DashboardProps) {
         }
       });
       setVersionCache(newCache);
+      setCacheVersion(v => v + 1); // Trigger selectedVersion memo update
       setCacheInitialized(true);
     }
   }, [cacheInitialized, versions]);
@@ -245,62 +359,182 @@ export function Dashboard({ versions }: DashboardProps) {
   }, [versions, setVersions]);
 
   // Set initial selected version (only once, when versions first load)
+  // Pre-fetch happens in the versions fetch effect, so this can select immediately
   useEffect(() => {
     if (versions.length > 0 && !selectedVersionId && versions[0]?.id) {
       setSelectedVersionId(versions[0].id);
     }
-  }, [versions.length]); // Only depend on array length, not selectedVersionId
+  }, [versions.length, selectedVersionId, setSelectedVersionId]); // Only depend on array length and selectedVersionId
 
-  // Get selected version from cache or initial versions
+  // Get selected version from cache (cache is source of truth for complete versions)
+  // Only use a version if it has required relations (curriculumPlans and rentPlan)
+  // Optimized: cache is the only source of complete versions
   const selectedVersion = useMemo(() => {
     if (!selectedVersionId) return null;
-    return versionCache.get(selectedVersionId) || versions.find((v) => v.id === selectedVersionId) || null;
-  }, [versions, selectedVersionId]);
-  // Note: versionCache is a Map (reference changes), so we omit it to prevent infinite loops
+    
+    // Cache is the source of truth - it contains complete versions with relations
+    // Initial versions are also stored in cache by cacheInitialized effect
+    const cached = versionCache.get(selectedVersionId);
+    if (cached && cached.curriculumPlans && cached.rentPlan) {
+      return cached;
+    }
+    
+    return null; // Wait for API fetch to complete
+  }, [selectedVersionId, cacheVersion]); // Only depend on cacheVersion - cache updates trigger recalculation
+  // Note: cacheVersion increments when cache updates, triggering memo recalculation
   
-  // Load version details on-demand when selected version is not in cache
+  // Load version details on-demand when selected version is not in cache OR incomplete
   useEffect(() => {
     if (!selectedVersionId) return;
     
     // Check cache before fetching (but don't include versionCache in deps)
     const cached = versionCache.get(selectedVersionId);
-    if (cached) return;
+    // Only skip fetch if we have a COMPLETE cached version with relations
+    if (cached && cached.curriculumPlans && cached.rentPlan) {
+      return; // Already have complete version
+    }
     
+    // Check if already fetching (prevent duplicate requests)
+    // Use a synchronous check and add atomically to prevent race conditions
+    if (fetchingRef.current.has(selectedVersionId)) {
+      return; // Already fetching
+    }
+    
+    // Mark as fetching IMMEDIATELY (before async operations)
+    fetchingRef.current.add(selectedVersionId);
     let cancelled = false;
     
     // Background fetch (don't block UI with loading state)
-    fetch(`/api/versions/${selectedVersionId}`)
-      .then(response => response.json())
+    // Use cached fetch to prevent duplicate concurrent requests
+    cachedFetch(`/api/versions/${selectedVersionId}`)
+      .then(async response => {
+        if (cancelled) return null;
+        
+        // Check if response is OK before parsing JSON
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`API error: ${response.status} ${response.statusText}`);
+        }
+        
+        // Check content type
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          throw new Error(`Invalid response type: ${contentType}`);
+        }
+        
+        return response.json();
+      })
       .then(data => {
-        if (!cancelled && data.success && data.data) {
-          const serializedVersion = serializeVersionForClient(data.data);
+        if (cancelled || !data) {
+          return;
+        }
+
+        if (!data || typeof data !== 'object') {
+          console.error('❌ Invalid API response: not an object', data);
+          return;
+        }
+
+        if (!data.success) {
+          console.error('❌ API returned error:', {
+            error: data.error,
+            code: data.code,
+            details: data.details,
+          });
+          return;
+        }
+
+        if (!data.data) {
+          console.error('❌ API response missing data field:', data);
+          return;
+        }
+
+        const serializedVersion = serializeVersionForClient(data.data);
+        
+        // Only update cache if not cancelled and not already cached
+        if (!cancelled) {
           setVersionCache(prev => {
+            // Double-check cache hasn't been updated by another request
+            const existing = prev.get(selectedVersionId);
+            if (existing && existing.curriculumPlans && existing.rentPlan) {
+              return prev; // Already cached by another request
+            }
             const newCache = new Map(prev);
             newCache.set(selectedVersionId, serializedVersion);
             return newCache;
           });
+          setCacheVersion(v => v + 1); // Trigger selectedVersion memo update
         }
       })
       .catch(error => {
         if (!cancelled) {
-          console.error('Failed to load version:', error);
+          console.error('❌ Failed to load version details:', {
+            error: error.message,
+            stack: error.stack,
+            versionId: selectedVersionId,
+          });
         }
+      })
+      .finally(() => {
+        // Remove from fetching set when done
+        fetchingRef.current.delete(selectedVersionId);
       });
     
     return () => {
       cancelled = true;
+      fetchingRef.current.delete(selectedVersionId);
     };
   }, [selectedVersionId]);
   // Note: versionCache is a Map, omitted from deps to prevent infinite loops
 
   // Memoize projection params to avoid recalculating on every render
-  const projectionParams = useMemo(() => {
+  // Use stable dependencies: create a serialized key from version data
+  // This prevents recalculation when object references change but data is the same
+  const projectionParamsKey = useMemo(() => {
     if (!selectedVersion) return null;
-    return versionToProjectionParams(selectedVersion);
-  }, [selectedVersion]);
+    // Create a stable key from version data (not object reference)
+    return `${selectedVersion.id}-${selectedVersion.curriculumPlans?.length || 0}-${selectedVersion.rentPlan?.id || ''}`;
+  }, [selectedVersion?.id, selectedVersion?.curriculumPlans?.length, selectedVersion?.rentPlan?.id]);
+  
+  // Track last calculated params to prevent duplicate calculations
+  // Store both the key and the params to avoid recalculating when key is the same
+  const lastCalculatedParamsRef = useRef<{ key: string; params: FullProjectionParams | null } | null>(null);
+  
+  // Store latest selectedVersion in ref to access it without triggering memo recalculation
+  const selectedVersionRef = useRef<typeof selectedVersion>(null);
+  selectedVersionRef.current = selectedVersion;
+  
+  const projectionParams = useMemo(() => {
+    // Early return if no key (no version selected)
+    if (!projectionParamsKey) {
+      lastCalculatedParamsRef.current = null;
+      return null;
+    }
+    
+    // Return cached params if key hasn't changed (key is stable, calculated from version data)
+    // This prevents recalculation when selectedVersion object reference changes but data is identical
+    const cached = lastCalculatedParamsRef.current;
+    if (cached?.key === projectionParamsKey) {
+      return cached.params; // Return cached immediately - no calculation needed
+    }
+    
+    // Calculate new params only if key changed (data actually changed)
+    // Use ref to get latest version without adding it to dependencies
+    const version = selectedVersionRef.current;
+    if (!version) {
+      return null;
+    }
+    
+    // Only calculate if we don't have cached params for this key
+    const params = versionToProjectionParams(version);
+    lastCalculatedParamsRef.current = { 
+      key: projectionParamsKey, 
+      params
+    };
+    return params;
+  }, [projectionParamsKey]); // Only depend on key - version accessed via ref to avoid recalculation
 
-  // Debounce params to prevent too many calculations (150ms for responsive UI)
-  const debouncedParams = useDebounce(projectionParams, 150);
+  // Debounce params to prevent too many calculations (50ms for ultra-responsive UI)
+  const debouncedParams = useDebounce(projectionParams, 50);
 
   // Calculate projection when debounced params change
   useEffect(() => {
@@ -336,6 +570,31 @@ export function Dashboard({ versions }: DashboardProps) {
     return transformProjectionData(projection);
   }, [projection]);
 
+  // Show skeleton while versions are loading
+  if (versionsLoading) {
+    return (
+      <div className="container mx-auto py-6 px-4">
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-10 w-64" />
+            <Skeleton className="h-10 w-48" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            {[...Array(5)].map((_, i) => (
+              <Skeleton key={i} className="h-32" />
+            ))}
+          </div>
+          <div className="grid gap-6 md:grid-cols-2">
+            <Skeleton className="h-96" />
+            <Skeleton className="h-96" />
+            <Skeleton className="h-96" />
+            <Skeleton className="h-96" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header with Version Selector */}
@@ -350,7 +609,7 @@ export function Dashboard({ versions }: DashboardProps) {
       </div>
 
       {/* Empty State Message */}
-      {versions.length === 0 && (
+      {!versionsLoading && versions.length === 0 && (
         <Card className="p-6 border-dashed">
           <div className="text-center py-8">
             <p className="text-lg font-semibold text-text-primary mb-2">No versions available</p>
@@ -427,7 +686,8 @@ export function Dashboard({ versions }: DashboardProps) {
             </CardContent>
           </Card>
         </div>
-      ) : calculationLoading ? (
+      ) : calculationLoading || (selectedVersionId && !selectedVersion) ? (
+        // Show loading state while calculating OR while waiting for version details
         <div className="grid gap-6 md:grid-cols-2">
           {Array.from({ length: 4 }).map((_, i) => (
             <Card key={i} className="p-12">

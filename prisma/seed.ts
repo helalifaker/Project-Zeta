@@ -20,7 +20,7 @@ async function main(): Promise<void> {
 
   // 1. Create Admin User
   const adminPassword = await bcrypt.hash('admin123', 10);
-  const admin = await prisma.user.upsert({
+  const admin = await prisma.users.upsert({
     where: { email: 'admin@company.com' },
     update: {},
     create: {
@@ -35,7 +35,7 @@ async function main(): Promise<void> {
 
   // 2. Create Planner User
   const plannerPassword = await bcrypt.hash('planner123', 10);
-  const planner = await prisma.user.upsert({
+  const planner = await prisma.users.upsert({
     where: { email: 'planner@company.com' },
     update: {},
     create: {
@@ -50,7 +50,7 @@ async function main(): Promise<void> {
 
   // 3. Create Viewer User
   const viewerPassword = await bcrypt.hash('viewer123', 10);
-  const viewer = await prisma.user.upsert({
+  const viewer = await prisma.users.upsert({
     where: { email: 'viewer@company.com' },
     update: {},
     create: {
@@ -75,7 +75,7 @@ async function main(): Promise<void> {
   ];
 
   for (const setting of settings) {
-    await prisma.adminSetting.upsert({
+    await prisma.admin_settings.upsert({
       where: { key: setting.key },
       update: { value: setting.value },
       create: {

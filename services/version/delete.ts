@@ -35,7 +35,7 @@ export async function deleteVersion(
     }
 
     // Check if version exists
-    const existingVersion = await prisma.version.findUnique({
+    const existingVersion = await prisma.versions.findUnique({
       where: { id },
       select: {
         id: true,
@@ -54,7 +54,7 @@ export async function deleteVersion(
     }
 
     // Delete version (cascade will delete related records)
-    await prisma.version.delete({
+    await prisma.versions.delete({
       where: { id },
     });
 

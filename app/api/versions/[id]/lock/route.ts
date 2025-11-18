@@ -48,7 +48,7 @@ export async function POST(
     }
 
     // Check if version exists
-    const existingVersion = await prisma.version.findUnique({
+    const existingVersion = await prisma.versions.findUnique({
       where: { id },
       select: {
         id: true,
@@ -103,8 +103,8 @@ export async function POST(
 
     const lockReason = validation.success ? validation.data.lockReason : body.lockReason;
 
-    // Lock version
-    const lockedVersion = await prisma.version.update({
+    // Lock version (snake_case relations from Prisma)
+    const lockedVersionRaw = await prisma.versions.update({
       where: { id },
       data: {
         status: VersionStatus.LOCKED,
@@ -113,9 +113,9 @@ export async function POST(
         ...(lockReason && { lockReason }),
       },
       include: {
-        curriculumPlans: true,
-        rentPlan: true,
-        creator: {
+        curriculum_plans: true,
+        rent_plans: true,
+        users: {
           select: {
             id: true,
             email: true,
@@ -124,6 +124,14 @@ export async function POST(
         },
       },
     });
+
+    // Map to camelCase fields expected by client
+    const lockedVersion: any = {
+      ...lockedVersionRaw,
+      curriculumPlans: lockedVersionRaw.curriculum_plans,
+      rentPlan: lockedVersionRaw.rent_plans,
+      creator: lockedVersionRaw.users,
+    };
 
     // Audit log
     await logAudit({

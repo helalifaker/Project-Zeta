@@ -7,8 +7,10 @@
 export {
   calculateStaffCostForYear,
   calculateStaffCosts,
+  calculateStaffCostBaseFromCurriculum,
   type StaffCostParams,
   type StaffCostResult,
+  type CurriculumPlanForStaffCost,
 } from './staff-costs';
 
 // Opex

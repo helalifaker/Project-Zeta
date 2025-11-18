@@ -5,9 +5,10 @@
 
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Download } from 'lucide-react';
 import { VersionSelectorList } from './VersionSelectorList';
 import { ComparisonTable } from './ComparisonTable';
@@ -19,7 +20,7 @@ import type { FullProjectionParams } from '@/lib/calculations/financial/projecti
 import { toWorkerNumber, serializeRentPlanParametersForWorker } from '@/lib/utils/worker-serialize';
 
 interface CompareProps {
-  versions: VersionWithRelations[];
+  versions?: VersionWithRelations[];
 }
 
 /**
@@ -99,7 +100,7 @@ function versionToProjectionParams(version: VersionWithRelations): FullProjectio
   };
 }
 
-export function Compare({ versions }: CompareProps) {
+export function Compare({ versions: initialVersions }: CompareProps) {
   const {
     selectedVersionIds,
     setVersions,
@@ -112,14 +113,157 @@ export function Compare({ versions }: CompareProps) {
   const { calculate, projection: calculatedProjection } =
     useFinancialCalculation();
 
-  // Initialize store with versions
-  useEffect(() => {
-    setVersions(versions as any[]);
-  }, [versions, setVersions]);
+  // Local state for versions
+  const [lightVersions, setLightVersions] = useState<Array<{ id: string; name: string }>>([]);
+  const [versions, setVersionsState] = useState<VersionWithRelations[]>(initialVersions || []);
+  const [versionsLoading, setVersionsLoading] = useState(!initialVersions);
+  const [versionDetailsCache, setVersionDetailsCache] = useState<Map<string, VersionWithRelations>>(new Map());
+  
+  // Track if versions have been fetched to prevent duplicate fetches (React Strict Mode)
+  const versionsFetchedRef = useRef(false);
 
-  // Get selected versions
+  // Fetch lightweight list of versions (FAST - no details)
+  useEffect(() => {
+    if (initialVersions) {
+      setVersionsState(initialVersions);
+      setLightVersions(initialVersions.map(v => ({ id: v.id, name: v.name })));
+      setVersionsLoading(false);
+      return;
+    }
+
+    // Prevent duplicate fetches (React Strict Mode runs effects twice in development)
+    if (versionsFetchedRef.current) {
+      return;
+    }
+    versionsFetchedRef.current = true;
+
+    console.log('📡 Fetching versions list (lightweight)...');
+    const fetchStart = performance.now();
+
+    fetch('/api/versions?page=1&limit=100&lightweight=true')
+      .then(response => response.json())
+      .then(data => {
+        const fetchTime = performance.now() - fetchStart;
+        console.log(`✅ Versions list loaded in ${fetchTime.toFixed(0)}ms`);
+        
+        if (data.success && data.data?.versions) {
+          const lightList = data.data.versions.map((v: any) => ({
+            id: v.id,
+            name: v.name,
+          }));
+          setLightVersions(lightList);
+          setVersions(lightList as any); // For selector - will be replaced with full details
+        }
+        setVersionsLoading(false);
+      })
+      .catch(error => {
+        console.error('❌ Failed to fetch versions:', error);
+        setVersionsLoading(false);
+      });
+  }, [initialVersions]);
+
+  // Fetch full details for selected versions ONLY (lazy loading)
+  useEffect(() => {
+    if (selectedVersionIds.length === 0 || lightVersions.length === 0) {
+      return;
+    }
+
+    // First, load any cached versions into state
+    const cachedVersions: VersionWithRelations[] = [];
+    selectedVersionIds.forEach(id => {
+      if (versionDetailsCache.has(id)) {
+        const cached = versionDetailsCache.get(id)!;
+        cachedVersions.push(cached);
+      }
+    });
+
+    if (cachedVersions.length > 0) {
+      setVersionsState(prev => {
+        const updated = [...prev];
+        cachedVersions.forEach(cached => {
+          const index = updated.findIndex(v => v.id === cached.id);
+          if (index >= 0) {
+            updated[index] = cached;
+          } else {
+            updated.push(cached);
+          }
+        });
+        return updated;
+      });
+    }
+
+    const fetchDetailsForSelected = async () => {
+      const missingIds = selectedVersionIds.filter(id => {
+        // Check cache first
+        if (versionDetailsCache.has(id)) {
+          return false;
+        }
+        // Check if version in state has full details
+        const versionInState = versions.find(v => v.id === id);
+        if (versionInState && 'curriculumPlans' in versionInState && Array.isArray((versionInState as VersionWithRelations).curriculumPlans)) {
+          return false;
+        }
+        return true;
+      });
+
+      if (missingIds.length === 0) {
+        return; // All selected versions already have details
+      }
+
+      console.log(`📡 Fetching full details for ${missingIds.length} selected version(s)...`);
+      const fetchStart = performance.now();
+
+      const detailPromises = missingIds.map((id) =>
+        fetch(`/api/versions/${id}`)
+          .then(res => res.json())
+          .then(detail => detail.success ? detail.data : null)
+          .catch(() => null)
+      );
+
+      const detailedVersions = (await Promise.all(detailPromises)).filter(Boolean) as VersionWithRelations[];
+      const fetchTime = performance.now() - fetchStart;
+      console.log(`✅ Full details loaded in ${fetchTime.toFixed(0)}ms`);
+
+      // Update cache
+      const newCache = new Map(versionDetailsCache);
+      detailedVersions.forEach(v => newCache.set(v.id, v));
+      setVersionDetailsCache(newCache);
+
+      // Update versions state with full details
+      setVersionsState(prev => {
+        const updated = [...prev];
+        detailedVersions.forEach(detailed => {
+          const index = updated.findIndex(v => v.id === detailed.id);
+          if (index >= 0) {
+            updated[index] = detailed;
+          } else {
+            updated.push(detailed);
+          }
+        });
+        return updated;
+      });
+
+      // Also update store with full details
+      setVersions(detailedVersions as any[]);
+    };
+
+    fetchDetailsForSelected();
+  }, [selectedVersionIds, lightVersions, versionDetailsCache, versions, setVersions]);
+
+  // Initialize store with light versions for selector
+  useEffect(() => {
+    if (lightVersions.length > 0) {
+      setVersions(lightVersions as any[]);
+    }
+  }, [lightVersions, setVersions]);
+
+  // Get selected versions (only those with full details)
   const selectedVersions = useMemo(() => {
-    return versions.filter((v) => selectedVersionIds.includes(v.id));
+    return versions.filter((v) => 
+      selectedVersionIds.includes(v.id) && 
+      'curriculumPlans' in v && 
+      Array.isArray((v as VersionWithRelations).curriculumPlans)
+    ) as VersionWithRelations[];
   }, [versions, selectedVersionIds]);
 
   // Calculate projections for selected versions
@@ -168,6 +312,24 @@ export function Compare({ versions }: CompareProps) {
     alert('Excel export functionality will be implemented');
   };
 
+  // Show skeleton while versions are loading
+  if (versionsLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-10 w-64" />
+          <Skeleton className="h-10 w-48" />
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          {[...Array(4)].map((_, i) => (
+            <Skeleton key={i} className="h-32" />
+          ))}
+        </div>
+        <Skeleton className="h-96" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -192,8 +354,8 @@ export function Compare({ versions }: CompareProps) {
         )}
       </div>
 
-      {/* Version Selector */}
-      <VersionSelectorList versions={versions as any[]} />
+      {/* Version Selector - use light versions for fast rendering */}
+      <VersionSelectorList versions={lightVersions.length > 0 ? lightVersions as any[] : versions as any[]} />
 
       {/* Comparison Content */}
       {selectedVersions.length >= 2 ? (
