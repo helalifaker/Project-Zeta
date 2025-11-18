@@ -397,7 +397,130 @@ export async function POST(req: Request) {
   // ...
 }
 ```
+### 4.5 Advanced Type Safety Patterns
 
+**ALWAYS use discriminated unions for complex states:**
+```typescript
+// ✅ CORRECT: Discriminated union for API states
+type ApiState<T> =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'success'; data: T }
+  | { status: 'error'; error: string };
+
+// Type-safe state handling
+function useVersion(id: string) {
+  const [state, setState] = useState<ApiState<Version>>({ status: 'idle' });
+  
+  useEffect(() => {
+    setState({ status: 'loading' });
+    
+    fetchVersion(id).then(
+      (data) => setState({ status: 'success', data }),
+      (error) => setState({ status: 'error', error: error.message })
+    );
+  }, [id]);
+  
+  return state;
+}
+
+// Usage with exhaustive checking
+function VersionDisplay({ id }: { id: string }) {
+  const state = useVersion(id);
+  
+  switch (state.status) {
+    case 'idle':
+      return null;
+    case 'loading':
+      return <Spinner />;
+    case 'success':
+      return <VersionDetail version={state.data} />; // ✅ data is typed!
+    case 'error':
+      return <ErrorMessage error={state.error} />; // ✅ error is typed!
+    default:
+      // Exhaustive check - TypeScript will error if we miss a case
+      const _exhaustive: never = state;
+      return _exhaustive;
+  }
+}
+
+// ✅ CORRECT: Branded types for IDs (prevent mixing different entity IDs)
+type VersionId = string & { readonly __brand: 'VersionId' };
+type CurriculumId = string & { readonly __brand: 'CurriculumId' };
+type UserId = string & { readonly __brand: 'UserId' };
+
+// Helper to create branded types
+function versionId(id: string): VersionId {
+  return id as VersionId;
+}
+
+function curriculumId(id: string): CurriculumId {
+  return id as CurriculumId;
+}
+
+// Now TypeScript prevents mixing IDs
+function getVersion(id: VersionId): Promise<Version> {
+  return fetch(`/api/versions/${id}`).then(r => r.json());
+}
+
+function getCurriculum(id: CurriculumId): Promise<Curriculum> {
+  return fetch(`/api/curricula/${id}`).then(r => r.json());
+}
+
+// ❌ TypeScript error: Type 'CurriculumId' is not assignable to type 'VersionId'
+const versionId = curriculumId('some-id');
+getVersion(versionId); // Compile-time error!
+
+// ✅ CORRECT: Type-safe builder pattern
+class VersionBuilder {
+  private data: Partial<Version> = {};
+  
+  setName(name: string): this {
+    this.data.name = name;
+    return this;
+  }
+  
+  setMode(mode: 'RELOCATION_2028' | 'HISTORICAL_BASELINE'): this {
+    this.data.mode = mode;
+    return this;
+  }
+  
+  addCurriculumPlan(plan: CurriculumPlan): this {
+    this.data.curriculumPlans = [...(this.data.curriculumPlans || []), plan];
+    return this;
+  }
+  
+  build(): Result<Version> {
+    // Type-safe validation
+    if (!this.data.name) {
+      return { success: false, error: 'Version name is required' };
+    }
+    
+    if (!this.data.mode) {
+      return { success: false, error: 'Version mode is required' };
+    }
+    
+    if (!this.data.curriculumPlans || this.data.curriculumPlans.length === 0) {
+      return { success: false, error: 'At least one curriculum plan is required' };
+    }
+    
+    // Safe to cast - all required fields validated
+    return { success: true, data: this.data as Version };
+  }
+}
+
+// Usage
+const versionResult = new VersionBuilder()
+  .setName('Q4 2024 Scenario')
+  .setMode('RELOCATION_2028')
+  .addCurriculumPlan(frPlan)
+  .addCurriculumPlan(ibPlan)
+  .build();
+
+if (versionResult.success) {
+  await createVersion(versionResult.data);
+}
+```
 ---
 
 ## 5. Financial Application Specific Rules
@@ -618,6 +741,122 @@ function useFinancialCalculation(params: FinancialParameters) {
   return { result, loading };
 }
 ```
+### 5.4 Memoization & Caching Strategy
+
+**CRITICAL: Avoid redundant calculations:**
+```typescript
+// ❌ WRONG: Recalculating on every render
+function FinancialDashboard({ version }: { version: VersionWithRelations }) {
+  // This recalculates EVERY render (expensive!)
+  const projection = calculateFullProjection(version);
+  
+  return <div>{projection.npv.toString()}</div>;
+}
+
+// ✅ CORRECT: Memoize expensive calculations
+import { useMemo } from 'react';
+
+function FinancialDashboard({ version }: { version: VersionWithRelations }) {
+  const projection = useMemo(() => {
+    const startTime = performance.now();
+    const result = calculateFullProjection(version);
+    const duration = performance.now() - startTime;
+    
+    console.log(`Calculation completed in ${duration.toFixed(2)}ms`);
+    return result;
+  }, [version]); // Only recalculate when version changes
+  
+  return <div>{projection.npv.toString()}</div>;
+}
+
+// ✅ CORRECT: Cache expensive operations at module level
+import { LRUCache } from 'lru-cache';
+
+const projectionCache = new LRUCache<string, FinancialProjection>({
+  max: 50, // Cache last 50 calculations
+  ttl: 1000 * 60 * 5, // 5 minutes
+});
+
+function calculateFullProjectionCached(
+  version: VersionWithRelations
+): FinancialProjection {
+  const cacheKey = `${version.id}-${version.updatedAt.getTime()}`;
+  
+  const cached = projectionCache.get(cacheKey);
+  if (cached) {
+    console.log('✅ Cache hit:', cacheKey);
+    return cached;
+  }
+  
+  const result = calculateFullProjection(version);
+  projectionCache.set(cacheKey, result);
+  return result;
+}
+```
+
+### 5.5 Calculation Optimization Patterns
+
+**ALWAYS profile before optimizing:**
+```typescript
+// Example: Profile calculation bottlenecks
+function profileCalculation<T>(
+  name: string,
+  fn: () => T
+): T {
+  const startTime = performance.now();
+  const result = fn();
+  const duration = performance.now() - startTime;
+  
+  console.log(`[PROFILE] ${name}: ${duration.toFixed(2)}ms`);
+  
+  // Log slow operations
+  if (duration > 50) {
+    console.warn(`⚠️ SLOW: ${name} exceeded 50ms target`);
+  }
+  
+  return result;
+}
+
+// Usage
+const npv = profileCalculation('calculateNPV', () =>
+  calculateNPV(cashFlows, discountRate, startYear)
+);
+
+// ✅ CORRECT: Batch calculations when possible
+function calculateYearlyMetrics(
+  years: number[],
+  tuition: Decimal,
+  students: number[]
+): Map<number, YearlyMetrics> {
+  // Process all years in one pass (more efficient)
+  return years.reduce((acc, year, index) => {
+    const revenue = tuition.times(students[index]);
+    const metrics: YearlyMetrics = {
+      year,
+      revenue,
+      // ... other calculations
+    };
+    acc.set(year, metrics);
+    return acc;
+  }, new Map<number, YearlyMetrics>());
+}
+
+// ❌ WRONG: Calculate one year at a time
+function calculateYearlyMetricsInefficient(
+  years: number[],
+  tuition: Decimal,
+  students: number[]
+): Map<number, YearlyMetrics> {
+  const results = new Map<number, YearlyMetrics>();
+  
+  // Inefficient: Multiple passes
+  years.forEach((year, index) => {
+    const revenue = calculateRevenue(tuition, students[index]); // Separate function call overhead
+    results.set(year, { year, revenue });
+  });
+  
+  return results;
+}
 
 ---
 
@@ -792,7 +1031,180 @@ enum RentModel {
   PARTNER_MODEL
 }
 ```
+### 8.3 Query Optimization Patterns
 
+**ALWAYS use select to avoid over-fetching:**
+```typescript
+// ❌ WRONG: Fetching all fields (wasteful)
+const versions = await prisma.version.findMany({
+  where: { createdBy: userId },
+  include: {
+    curriculumPlans: true,
+    rentPlan: true,
+    capexItems: true,
+    opexSubAccounts: true,
+  },
+});
+
+// ✅ CORRECT: Select only needed fields
+const versions = await prisma.version.findMany({
+  where: { createdBy: userId },
+  select: {
+    id: true,
+    name: true,
+    status: true,
+    createdAt: true,
+    mode: true,
+    // Don't include large relations for list views
+  },
+  orderBy: { createdAt: 'desc' },
+});
+
+// ✅ CORRECT: Use pagination for large result sets
+async function getVersionsPaginated(params: {
+  userId: string;
+  page: number;
+  pageSize: number;
+}): Promise<Result<{ versions: Version[]; total: number }>> {
+  const skip = (params.page - 1) * params.pageSize;
+  
+  try {
+    const [versions, total] = await Promise.all([
+      prisma.version.findMany({
+        where: { createdBy: params.userId },
+        skip,
+        take: params.pageSize,
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.version.count({
+        where: { createdBy: params.userId },
+      }),
+    ]);
+    
+    return { success: true, data: { versions, total } };
+  } catch (error) {
+    return { success: false, error: 'Failed to fetch versions' };
+  }
+}
+
+// ✅ CORRECT: Use cursor-based pagination for infinite scroll
+async function getVersionsCursor(params: {
+  userId: string;
+  cursor?: string;
+  limit: number;
+}): Promise<Result<{ versions: Version[]; nextCursor?: string }>> {
+  try {
+    const versions = await prisma.version.findMany({
+      where: { createdBy: params.userId },
+      take: params.limit + 1, // Fetch one extra to determine if there's more
+      cursor: params.cursor ? { id: params.cursor } : undefined,
+      orderBy: { createdAt: 'desc' },
+    });
+    
+    let nextCursor: string | undefined;
+    if (versions.length > params.limit) {
+      const nextItem = versions.pop(); // Remove extra item
+      nextCursor = nextItem?.id;
+    }
+    
+    return { success: true, data: { versions, nextCursor } };
+  } catch (error) {
+    return { success: false, error: 'Failed to fetch versions' };
+  }
+}
+
+// ✅ CORRECT: Batch queries to avoid N+1 problem
+// ❌ WRONG: N+1 query
+async function getVersionsWithCurriculaNaive(userId: string) {
+  const versions = await prisma.version.findMany({
+    where: { createdBy: userId },
+  });
+  
+  // ❌ This creates N queries (one per version)
+  for (const version of versions) {
+    version.curriculumPlans = await prisma.curriculumPlan.findMany({
+      where: { versionId: version.id },
+    });
+  }
+  
+  return versions;
+}
+
+// ✅ CORRECT: Single query with include
+async function getVersionsWithCurricula(userId: string) {
+  return await prisma.version.findMany({
+    where: { createdBy: userId },
+    include: {
+      curriculumPlans: true, // Single JOIN query
+    },
+  });
+}
+
+// ✅ CORRECT: Use dataloader for batching (advanced)
+import DataLoader from 'dataloader';
+
+const curriculumLoader = new DataLoader(async (versionIds: readonly string[]) => {
+  const curricula = await prisma.curriculumPlan.findMany({
+    where: { versionId: { in: [...versionIds] } },
+  });
+  
+  // Group by versionId
+  const grouped = versionIds.map(id =>
+    curricula.filter(c => c.versionId === id)
+  );
+  
+  return grouped;
+});
+
+// Usage
+const versions = await prisma.version.findMany({
+  where: { createdBy: userId },
+});
+
+const versionsWithCurricula = await Promise.all(
+  versions.map(async (version) => ({
+    ...version,
+    curriculumPlans: await curriculumLoader.load(version.id),
+  }))
+);
+```
+
+### 8.4 Index Strategy & Query Performance
+
+**ALWAYS verify indexes for frequent queries:**
+```prisma
+// ✅ CORRECT: Indexes for common query patterns
+model Version {
+  id          String   @id @default(uuid())
+  name        String
+  status      Status
+  createdBy   String
+  createdAt   DateTime @default(now())
+  mode        Mode
+  
+  // Indexes for common queries
+  @@index([createdBy, status]) // Filter by user and status
+  @@index([createdBy, createdAt(sort: Desc)]) // Recent versions for user
+  @@index([status, createdAt(sort: Desc)]) // Recent versions by status
+  @@index([mode, createdBy]) // Versions by mode for user
+}
+
+// Query analyzer helper
+async function analyzeQuery() {
+  // In development, log slow queries
+  if (process.env.NODE_ENV === 'development') {
+    const result = await prisma.$queryRaw`
+      EXPLAIN ANALYZE
+      SELECT * FROM versions
+      WHERE created_by = ${'user-id'}
+      ORDER BY created_at DESC
+      LIMIT 10
+    `;
+    
+    console.log('Query Plan:', result);
+  }
+}
+```
 ---
 
 ## 9. Daily Workflow
@@ -945,7 +1357,162 @@ describe('calculateFixedEscalationRent', () => {
   });
 });
 ```
+### 11.4 Integration Testing Patterns
 
+**ALWAYS test critical user flows end-to-end:**
+```typescript
+// /tests/integration/version-creation.test.ts
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createMocks } from 'node-mocks-http';
+import { prisma } from '@/lib/db';
+import { POST as createVersion } from '@/app/api/versions/route';
+
+describe('Version Creation Flow', () => {
+  beforeEach(async () => {
+    // Clean database before each test
+    await prisma.auditLog.deleteMany();
+    await prisma.curriculumPlan.deleteMany();
+    await prisma.rentPlan.deleteMany();
+    await prisma.version.deleteMany();
+  });
+  
+  afterEach(async () => {
+    await prisma.$disconnect();
+  });
+  
+  it('should create version with FR and IB curricula', async () => {
+    const { req, res } = createMocks({
+      method: 'POST',
+      body: {
+        name: 'Test Version',
+        mode: 'RELOCATION_2028',
+        curriculumPlans: [
+          {
+            curriculumType: 'FR',
+            capacity: 500,
+            tuitionBase: 50000,
+            cpiFrequency: 2,
+          },
+          {
+            curriculumType: 'IB',
+            capacity: 300,
+            tuitionBase: 60000,
+            cpiFrequency: 2,
+          },
+        ],
+        rentPlan: {
+          rentModel: 'FIXED_ESCALATION',
+          escalationRate: 0.04,
+        },
+      },
+    });
+    
+    await createVersion(req as any);
+    
+    // Verify response
+    expect(res._getStatusCode()).toBe(201);
+    const data = res._getJSONData();
+    expect(data.success).toBe(true);
+    expect(data.data.name).toBe('Test Version');
+    
+    // Verify database state
+    const version = await prisma.version.findUnique({
+      where: { id: data.data.id },
+      include: {
+        curriculumPlans: true,
+        rentPlan: true,
+      },
+    });
+    
+    expect(version).not.toBeNull();
+    expect(version?.curriculumPlans).toHaveLength(2);
+    expect(version?.rentPlan).not.toBeNull();
+    
+    // Verify audit log
+    const auditLog = await prisma.auditLog.findFirst({
+      where: {
+        action: 'CREATE_VERSION',
+        entityId: data.data.id,
+      },
+    });
+    
+    expect(auditLog).not.toBeNull();
+  });
+  
+  it('should reject version with missing FR curriculum', async () => {
+    const { req, res } = createMocks({
+      method: 'POST',
+      body: {
+        name: 'Invalid Version',
+        mode: 'RELOCATION_2028',
+        curriculumPlans: [
+          {
+            curriculumType: 'IB', // Missing FR
+            capacity: 300,
+            tuitionBase: 60000,
+            cpiFrequency: 2,
+          },
+        ],
+      },
+    });
+    
+    await createVersion(req as any);
+    
+    expect(res._getStatusCode()).toBe(400);
+    const data = res._getJSONData();
+    expect(data.success).toBe(false);
+    expect(data.error).toContain('FR curriculum is required');
+  });
+});
+
+// /tests/integration/calculation-accuracy.test.ts
+describe('Financial Calculation Accuracy', () => {
+  it('should calculate NPV correctly for known scenario', () => {
+    // Known test case from Excel model
+    const cashFlows = [
+      new Decimal('1000000'),  // Year 1
+      new Decimal('1100000'),  // Year 2
+      new Decimal('1210000'),  // Year 3
+    ];
+    
+    const discountRate = new Decimal('0.10'); // 10%
+    const expectedNPV = new Decimal('2735537.19'); // From Excel
+    
+    const calculatedNPV = calculateNPV(cashFlows, discountRate, 2028);
+    
+    // Allow 0.01 SAR tolerance (halala precision)
+    expect(calculatedNPV.minus(expectedNPV).abs().lessThanOrEqualTo(0.01)).toBe(true);
+  });
+});
+```
+
+### 11.5 Visual Regression Testing
+
+**ALWAYS test UI changes don't break existing layouts:**
+```typescript
+// /tests/visual/version-detail.spec.ts
+import { test, expect } from '@playwright/test';
+
+test.describe('Version Detail Page', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/dashboard/versions/test-version-id');
+  });
+  
+  test('should match baseline screenshot', async ({ page }) => {
+    await expect(page).toHaveScreenshot('version-detail-baseline.png', {
+      fullPage: true,
+      threshold: 0.2, // Allow 20% difference
+    });
+  });
+  
+  test('curriculum plans section should be visible', async ({ page }) => {
+    const curricula = page.locator('[data-testid="curriculum-plans"]');
+    await expect(curricula).toBeVisible();
+    
+    await expect(curricula).toHaveScreenshot('curriculum-plans.png');
+  });
+});
+```
 ### 11.2 Type Guards for External Data
 
 **ALWAYS validate data from external sources:**
@@ -1343,8 +1910,352 @@ async function calculateFullProjection(params: FinancialParameters): Promise<Res
   }
 }
 ```
+### 14.3 Real-Time Performance Monitoring
 
+**ALWAYS track key performance indicators:**
+```typescript
+// /lib/monitoring/performance.ts
+interface PerformanceMetric {
+  operation: string;
+  duration: number;
+  timestamp: Date;
+  userId?: string;
+  versionId?: string;
+  success: boolean;
+}
+
+class PerformanceMonitor {
+  private metrics: PerformanceMetric[] = [];
+  
+  track(metric: PerformanceMetric): void {
+    this.metrics.push(metric);
+    
+    // Send to monitoring service (e.g., Vercel Analytics, Datadog)
+    if (typeof window !== 'undefined') {
+      // Client-side: Use Web Vitals
+      this.sendToAnalytics(metric);
+    } else {
+      // Server-side: Log to CloudWatch, etc.
+      console.log('[METRIC]', JSON.stringify(metric));
+    }
+    
+    // Alert on slow operations
+    if (metric.duration > 1000) {
+      console.error(`🔴 CRITICAL: ${metric.operation} took ${metric.duration}ms`);
+      // TODO: Send alert to ops team
+    }
+  }
+  
+  private sendToAnalytics(metric: PerformanceMetric): void {
+    if ('sendBeacon' in navigator) {
+      navigator.sendBeacon('/api/analytics', JSON.stringify(metric));
+    }
+  }
+  
+  getMetrics(operation?: string): PerformanceMetric[] {
+    return operation
+      ? this.metrics.filter(m => m.operation === operation)
+      : this.metrics;
+  }
+  
+  getAverageDuration(operation: string): number {
+    const metrics = this.getMetrics(operation);
+    if (metrics.length === 0) return 0;
+    
+    const sum = metrics.reduce((acc, m) => acc + m.duration, 0);
+    return sum / metrics.length;
+  }
+}
+
+export const performanceMonitor = new PerformanceMonitor();
+
+// Usage in calculations
+export async function calculateFullProjectionMonitored(
+  version: VersionWithRelations,
+  userId: string
+): Promise<Result<FinancialProjection>> {
+  const startTime = performance.now();
+  let success = false;
+  
+  try {
+    const result = await calculateFullProjection(version);
+    success = true;
+    return { success: true, data: result };
+  } catch (error) {
+    return { success: false, error: 'Calculation failed' };
+  } finally {
+    const duration = performance.now() - startTime;
+    
+    performanceMonitor.track({
+      operation: 'calculateFullProjection',
+      duration,
+      timestamp: new Date(),
+      userId,
+      versionId: version.id,
+      success,
+    });
+  }
+}
+```
+
+### 14.4 Error Tracking & Alerting
+
+**ALWAYS capture error context for debugging:**
+```typescript
+// /lib/monitoring/errors.ts
+import * as Sentry from '@sentry/nextjs';
+
+interface ErrorContext {
+  userId?: string;
+  versionId?: string;
+  operation: string;
+  additionalData?: Record<string, unknown>;
+}
+
+export function captureError(
+  error: Error,
+  context: ErrorContext
+): void {
+  // Log to console (development)
+  console.error('[ERROR]', {
+    message: error.message,
+    stack: error.stack,
+    ...context,
+  });
+  
+  // Send to Sentry (production)
+  if (process.env.NODE_ENV === 'production') {
+    Sentry.captureException(error, {
+      tags: {
+        operation: context.operation,
+      },
+      user: context.userId ? { id: context.userId } : undefined,
+      contexts: {
+        version: context.versionId ? { id: context.versionId } : undefined,
+        additional: context.additionalData,
+      },
+    });
+  }
+  
+  // Alert on critical errors
+  if (isCriticalError(error)) {
+    sendCriticalAlert(error, context);
+  }
+}
+
+function isCriticalError(error: Error): boolean {
+  const criticalPatterns = [
+    'database connection failed',
+    'out of memory',
+    'calculation precision error',
+    'data corruption detected',
+  ];
+  
+  return criticalPatterns.some(pattern =>
+    error.message.toLowerCase().includes(pattern)
+  );
+}
+
+async function sendCriticalAlert(
+  error: Error,
+  context: ErrorContext
+): Promise<void> {
+  // TODO: Send to PagerDuty, Slack, email, etc.
+  console.error('🚨 CRITICAL ERROR:', error.message, context);
+}
+```
 ---
+## 15. Progressive Enhancement & Error Recovery
+
+### 15.1 Graceful Degradation Patterns
+
+**ALWAYS provide fallback UI for errors:**
+```typescript
+// ✅ CORRECT: Graceful error handling with user-friendly fallback
+function FinancialProjectionChart({ versionId }: { versionId: string }) {
+  const { data, error, isLoading } = useFinancialProjection(versionId);
+  
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <Spinner className="w-8 h-8" />
+        <p className="ml-3 text-text-secondary">Loading projection...</p>
+      </div>
+    );
+  }
+  
+  if (error) {
+    return (
+      <Card className="bg-background-secondary border-accent-red/20">
+        <CardContent className="p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <AlertCircleIcon className="w-6 h-6 text-accent-red" />
+            <h3 className="text-lg font-semibold text-text-primary">
+              Unable to Load Projection
+            </h3>
+          </div>
+          <p className="text-text-secondary mb-4">
+            We couldn't calculate the financial projection. This might be due to:
+          </p>
+          <ul className="list-disc list-inside text-text-tertiary space-y-1 mb-4">
+            <li>Missing curriculum configuration</li>
+            <li>Invalid rent parameters</li>
+            <li>Temporary calculation error</li>
+          </ul>
+          <Button onClick={() => window.location.reload()}>
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+  
+  return <ProjectionChart data={data} />;
+}
+
+// ✅ CORRECT: Partial data display (don't hide everything if one calculation fails)
+function FinancialSummary({ version }: { version: VersionWithRelations }) {
+  const [npvResult, setNpvResult] = useState<Result<Decimal> | null>(null);
+  const [irrResult, setIrrResult] = useState<Result<Decimal> | null>(null);
+  
+  useEffect(() => {
+    // Calculate NPV and IRR independently
+    const npv = calculateNPV(version);
+    const irr = calculateIRR(version);
+    
+    setNpvResult(npv);
+    setIrrResult(irr);
+  }, [version]);
+  
+  return (
+    <div className="grid grid-cols-2 gap-4">
+      <KPICard
+        title="NPV (2028-2052)"
+        value={npvResult?.success ? npvResult.data.toString() : 'N/A'}
+        error={npvResult?.success === false ? npvResult.error : undefined}
+      />
+      <KPICard
+        title="IRR"
+        value={irrResult?.success ? irrResult.data.toString() : 'N/A'}
+        error={irrResult?.success === false ? irrResult.error : undefined}
+      />
+    </div>
+  );
+}
+```
+
+### 15.2 Retry & Resilience Patterns
+
+**ALWAYS implement retry logic for transient failures:**
+```typescript
+// ✅ CORRECT: Exponential backoff retry
+async function fetchWithRetry<T>(
+  fn: () => Promise<T>,
+  options: {
+    maxRetries?: number;
+    initialDelay?: number;
+    maxDelay?: number;
+    backoffMultiplier?: number;
+  } = {}
+): Promise<Result<T>> {
+  const {
+    maxRetries = 3,
+    initialDelay = 1000,
+    maxDelay = 10000,
+    backoffMultiplier = 2,
+  } = options;
+  
+  let lastError: Error | null = null;
+  let delay = initialDelay;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await fn();
+      return { success: true, data: result };
+    } catch (error) {
+      lastError = error as Error;
+      
+      if (attempt < maxRetries) {
+        console.warn(`Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay = Math.min(delay * backoffMultiplier, maxDelay);
+      }
+    }
+  }
+  
+  return {
+    success: false,
+    error: `Failed after ${maxRetries} retries: ${lastError?.message}`,
+  };
+}
+
+// Usage
+const versionResult = await fetchWithRetry(
+  () => fetch(`/api/versions/${id}`).then(r => r.json())
+);
+```
+
+### 15.3 Optimistic UI Updates
+
+**ALWAYS show immediate feedback, rollback on error:**
+```typescript
+// ✅ CORRECT: Optimistic update with rollback
+function useTuitionUpdate() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (params: {
+      versionId: string;
+      curriculumType: 'FR' | 'IB';
+      newTuition: number;
+    }) => {
+      const response = await fetch(`/api/versions/${params.versionId}/tuition`, {
+        method: 'PATCH',
+        body: JSON.stringify(params),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to update tuition');
+      }
+      
+      return response.json();
+    },
+    onMutate: async (params) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['version', params.versionId] });
+      
+      // Snapshot previous value
+      const previousVersion = queryClient.getQueryData(['version', params.versionId]);
+      
+      // Optimistically update
+      queryClient.setQueryData(['version', params.versionId], (old: any) => {
+        return {
+          ...old,
+          curriculumPlans: old.curriculumPlans.map((plan: any) =>
+            plan.curriculumType === params.curriculumType
+              ? { ...plan, tuitionBase: params.newTuition }
+              : plan
+          ),
+        };
+      });
+      
+      return { previousVersion };
+    },
+    onError: (error, params, context) => {
+      // Rollback on error
+      queryClient.setQueryData(
+        ['version', params.versionId],
+        context?.previousVersion
+      );
+      
+      toast.error('Failed to update tuition. Changes have been reverted.');
+    },
+    onSuccess: () => {
+      toast.success('Tuition updated successfully');
+    },
+  });
+}
+```
 
 ## 15. Git Workflow
 
