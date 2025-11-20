@@ -114,7 +114,7 @@ export function FinancialStatements(props: FinancialStatementsProps): JSX.Elemen
             variant="outline"
             size="sm"
             onClick={() => handleExport('excel')}
-            disabled={calculating || !projection}
+            disabled={loading || !projection}
           >
             <Download className="h-4 w-4 mr-2" />
             Export Excel
@@ -123,7 +123,7 @@ export function FinancialStatements(props: FinancialStatementsProps): JSX.Elemen
             variant="outline"
             size="sm"
             onClick={() => handleExport('pdf')}
-            disabled={calculating || !projection}
+            disabled={loading || !projection}
           >
             <Download className="h-4 w-4 mr-2" />
             Export PDF
