@@ -60,7 +60,11 @@ describe('Calculation Accuracy Tests', () => {
   const mockAdminSettings = {
     cpiRate: 0.03,
     discountRate: 0.08,
-    taxRate: 0.20,
+    zakatRate: 0.025, // ✅ Saudi Arabian Zakat rate (2.5%)
+    currency: 'SAR',
+    timezone: 'Asia/Riyadh',
+    dateFormat: 'DD/MM/YYYY',
+    numberFormat: '1,000,000',
   };
 
   const mockVersion = {
@@ -162,7 +166,11 @@ describe('Calculation Accuracy Tests', () => {
       const customAdminSettings = {
         cpiRate: 0.035, // 3.5% instead of default 3%
         discountRate: 0.09, // 9% instead of default 8%
-        taxRate: 0.25, // 25% instead of default 20%
+        zakatRate: 0.025, // 2.5% Saudi Arabian Zakat rate
+        currency: 'SAR',
+        timezone: 'Asia/Riyadh',
+        dateFormat: 'DD/MM/YYYY',
+        numberFormat: '1,000,000',
       };
 
       vi.mocked(getAdminSettings).mockResolvedValue({

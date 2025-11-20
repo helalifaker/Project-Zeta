@@ -1,0 +1,45 @@
+Section,Item,2023,2024
+P&L,Tuition French Curriculum,55819340,65503278
+P&L,Tuition IB,0,0
+P&L,Other Income,4373210,5015995
+P&L,Total Revenues,60192550,70519273
+P&L,Salaries and Related Costs,28460183,29874321
+P&L,School Rent,7939656,7631145
+P&L,Other Expenses,21816348,29830920
+P&L,Total Operating Expenses,58216187,67336386
+P&L,Depreciation and Amortization,1615988,1692826
+P&L,Interest Income,0,0
+P&L,Interest Expenses,0,0
+P&L,Net Result,360375,1490061
+Balance Sheet,Cash on Hand and in Bank,18557338,20047399
+Balance Sheet,Accounts Receivable and Others,17308975,22823829
+Balance Sheet,Total Current Assets,35866313,42871228
+Balance Sheet,Tangible and Intangible Assets Gross,26732311,26732311
+Balance Sheet,Accumulated Depreciation and Amortization,-9691569,-11384395
+Balance Sheet,Non Current Assets,17040742,15347916
+Balance Sheet,Total Assets,52907055,58219144
+Balance Sheet,Accounts Payable,13309433,17372900
+Balance Sheet,Deferred Income,23649200,23649200
+Balance Sheet,Total Current Liabilities,36958633,41022100
+Balance Sheet,Provisions,2400000,2400000
+Balance Sheet,Total Liabilities,39358633,43422100
+Balance Sheet,Retained Earnings,13188047,13307983
+Balance Sheet,Equity,13548422,14797044
+Cash Flow,Net Result,360375,1490061
+Cash Flow,Accounts Receivable,-1900097,-5514854
+Cash Flow,Prepaid Expenses,58375,0
+Cash Flow,Loans,0,0
+Cash Flow,Intangible Assets,0,0
+Cash Flow,Accounts Payable,2145103,4063467
+Cash Flow,Accrued Expenses,0,0
+Cash Flow,Deferred Income,0,0
+Cash Flow,Provisions,600000,0
+Cash Flow,Depreciation,1615988,1692826
+Cash Flow,Net Cash from Operating Activities,2879744,1731500
+Cash Flow,Additions of Fixed Assets,0,0
+Cash Flow,Net Cash from Investing Activities,0,0
+Cash Flow,Changes in Fund Balance,0,0
+Cash Flow,Net Cash from Financing Activities,0,0
+Cash Flow,Net Increase (Decrease) Cash,2879744,1731500
+Cash Flow,Cash Beginning of Period,15677594,18557338
+Cash Flow,Cash End of Period,18557338,20288838

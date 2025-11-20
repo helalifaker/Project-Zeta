@@ -149,20 +149,42 @@ export async function GET(
   context: RouteContext
 ): Promise<NextResponse> {
   try {
+    console.log('🔍 [GET /api/versions/[id]] Starting request...');
+    
     // Authentication required
-    const authResult = await requireAuth();
+    let authResult;
+    try {
+      authResult = await requireAuth();
+      console.log('✅ [GET /api/versions/[id]] Auth check passed');
+    } catch (authError) {
+      console.error('❌ [GET /api/versions/[id]] Auth check failed with exception:', authError);
+      return NextResponse.json(
+        { success: false, error: 'Authentication failed', code: 'AUTH_ERROR', details: authError instanceof Error ? authError.message : String(authError) },
+        { status: 401 }
+      );
+    }
+    
     if (!authResult.success) {
+      console.error('❌ [GET /api/versions/[id]] Auth check returned error:', authResult.error, authResult.code);
       return NextResponse.json(
         { success: false, error: authResult.error, code: authResult.code },
         { status: 401 }
       );
     }
 
-    const params = await context.params;
-    const id = params?.id;
-
-    // Log for debugging
-    console.log(`📡 GET /api/versions/${id}`, { params, idType: typeof id, idLength: id?.length });
+    let params;
+    let id: string | undefined;
+    try {
+      params = await context.params;
+      id = params?.id;
+      console.log(`📡 [GET /api/versions/[id]] Params resolved:`, { id, idType: typeof id, idLength: id?.length });
+    } catch (paramsError) {
+      console.error('❌ [GET /api/versions/[id]] Failed to resolve params:', paramsError);
+      return NextResponse.json(
+        { success: false, error: 'Failed to resolve route parameters', code: 'PARAMS_ERROR', details: paramsError instanceof Error ? paramsError.message : String(paramsError) },
+        { status: 500 }
+      );
+    }
 
     if (!id) {
       console.error(`❌ Missing version ID in params`);
@@ -184,8 +206,9 @@ export async function GET(
 
     // OPTIMIZATION: Split into parallel queries for better performance
     // Fetch core version data first (lightweight)
+    // ✅ FIX: Use Promise.allSettled to handle individual query failures gracefully
     const queryStart = performance.now();
-    const [version, curriculumPlans, rentPlan, opexSubAccounts, capexItems, capexRules] = await Promise.all([
+    const results = await Promise.allSettled([
       // Core version data (no relations)
       prisma.versions.findUnique({
         where: { id },
@@ -262,7 +285,8 @@ export async function GET(
         orderBy: { year: 'asc' },
       }),
       // Capex rules (needed for Costs Analysis tab)
-      prisma.capex_rules.findMany({
+      // ✅ FIX: Wrap in try-catch equivalent - use Promise.resolve to handle gracefully
+      Promise.resolve(prisma.capex_rules.findMany({
         where: { versionId: id },
         select: {
           id: true,
@@ -275,8 +299,44 @@ export async function GET(
           updatedAt: true,
         },
         orderBy: { category: 'asc' },
+      })).catch((error) => {
+        // ✅ FIX: If capex_rules table doesn't exist (migration not applied), return empty array
+        console.warn('⚠️ [CAPEX_RULES] Table not found or query failed, returning empty array:', error instanceof Error ? error.message : String(error));
+        return [];
       }),
     ]);
+
+    // Extract results from Promise.allSettled
+    // ✅ CRITICAL: Version query must succeed - log error if it fails
+    if (results[0].status === 'rejected') {
+      console.error('❌ [GET /api/versions/[id]] Failed to fetch version:', results[0].reason);
+      throw new Error(`Failed to fetch version: ${results[0].reason instanceof Error ? results[0].reason.message : String(results[0].reason)}`);
+    }
+    const version = results[0].value;
+    
+    // Optional relations - can be empty if queries fail
+    const curriculumPlans = results[1].status === 'fulfilled' ? results[1].value : [];
+    const rentPlan = results[2].status === 'fulfilled' ? results[2].value : null;
+    const opexSubAccounts = results[3].status === 'fulfilled' ? results[3].value : [];
+    const capexItems = results[4].status === 'fulfilled' ? results[4].value : [];
+    const capexRules = results[5].status === 'fulfilled' ? results[5].value : [];
+    
+    // Log warnings for failed optional queries
+    if (results[1].status === 'rejected') {
+      console.warn('⚠️ [GET /api/versions/[id]] Failed to fetch curriculum plans:', results[1].reason);
+    }
+    if (results[2].status === 'rejected') {
+      console.warn('⚠️ [GET /api/versions/[id]] Failed to fetch rent plan:', results[2].reason);
+    }
+    if (results[3].status === 'rejected') {
+      console.warn('⚠️ [GET /api/versions/[id]] Failed to fetch opex sub accounts:', results[3].reason);
+    }
+    if (results[4].status === 'rejected') {
+      console.warn('⚠️ [GET /api/versions/[id]] Failed to fetch capex items:', results[4].reason);
+    }
+    if (results[5].status === 'rejected') {
+      console.warn('⚠️ [GET /api/versions/[id]] Failed to fetch capex rules:', results[5].reason);
+    }
 
     if (!version) {
       return NextResponse.json(
@@ -359,12 +419,13 @@ export async function GET(
       { headers }
     );
   } catch (error) {
-    console.error('❌ GET /api/versions/[id] - Failed to get version:', error);
-    console.error('Error type:', error instanceof Error ? error.constructor.name : typeof error);
-    console.error('Error message:', error instanceof Error ? error.message : String(error));
+    console.error('❌ [GET /api/versions/[id]] ERROR CAUGHT:', error);
+    console.error('❌ [GET /api/versions/[id]] Error type:', error instanceof Error ? error.constructor.name : typeof error);
+    console.error('❌ [GET /api/versions/[id]] Error message:', error instanceof Error ? error.message : String(error));
     if (error instanceof Error && error.stack) {
-      console.error('Error stack:', error.stack);
+      console.error('❌ [GET /api/versions/[id]] Error stack:', error.stack);
     }
+    console.error('❌ [GET /api/versions/[id]] Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
     
     // Handle database errors
     let errorMessage = 'Internal server error';

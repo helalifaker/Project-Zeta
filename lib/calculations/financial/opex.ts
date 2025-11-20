@@ -87,6 +87,23 @@ export function calculateOpexForYear(
       type: 'variable' | 'fixed';
     }> = [];
 
+    // 🐛 DEBUG: Log opex calculation details
+    if (revenueDecimal.greaterThan(0)) {
+      console.log('[OPEX DEBUG] Calculating opex:', {
+        revenue: revenueDecimal.toNumber(),
+        subAccountsCount: subAccounts.length,
+      });
+      
+      subAccounts.forEach((sa, idx) => {
+        console.log(`  [OPEX SUB-ACCOUNT ${idx + 1}]`, {
+          name: sa.subAccountName,
+          isFixed: sa.isFixed,
+          percentOfRevenue: sa.percentOfRevenue,
+          fixedAmount: sa.fixedAmount,
+        });
+      });
+    }
+    
     // Process each sub-account
     for (const subAccount of subAccounts) {
       if (subAccount.isFixed) {
@@ -117,8 +134,11 @@ export function calculateOpexForYear(
           return error(`Percentage cannot be negative for sub-account: ${subAccount.subAccountName}`);
         }
 
-        // Calculate: revenue × percent
-        const variableAmount = safeMultiply(revenueDecimal, percent);
+        // ✅ FIX: percentOfRevenue is stored as whole number (6 = 6%, not 0.06)
+        // Must divide by 100 to convert to decimal
+        // Calculate: revenue × (percent / 100)
+        const percentDecimal = percent.dividedBy(100);
+        const variableAmount = safeMultiply(revenueDecimal, percentDecimal);
         variableOpex = variableOpex.plus(variableAmount);
         breakdown.push({
           subAccountName: subAccount.subAccountName,

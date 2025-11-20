@@ -136,9 +136,13 @@ export function calculateStaffCosts(
       return error('Years must be between 2023 and 2052');
     }
 
-    if (baseYear > startYear) {
-      return error('Base year must be <= start year');
-    }
+    // ✅ FIX: Allow baseYear > startYear for relocation mode (baseYear=2028, startYear=2023)
+    // For years before baseYear, we'll use the base value (no backward projection)
+    // Note: This is valid for RELOCATION_2028 mode where staff cost base is calculated for 2028
+    // but we project from 2023-2052
+    // if (baseYear > startYear) {
+    //   return error('Base year must be <= start year');
+    // }
 
     const base = toDecimal(baseStaffCost);
     const rate = toDecimal(cpiRate);
@@ -161,7 +165,19 @@ export function calculateStaffCosts(
 
     for (let year = startYear; year <= endYear; year++) {
       const yearsFromBase = year - baseYear;
-      const cpiPeriod = Math.floor(yearsFromBase / cpiFrequency);
+      
+      // ✅ FIX: Handle years before baseYear (e.g., 2023-2027 when baseYear=2028)
+      // For relocation mode: use base value for years before relocation (no growth)
+      // For years >= baseYear: apply CPI growth normally
+      let cpiPeriod: number;
+      if (yearsFromBase < 0) {
+        // Year is before base year: use base value (period 0, no growth)
+        cpiPeriod = 0;
+      } else {
+        // Year is >= base year: calculate CPI period normally
+        cpiPeriod = Math.floor(yearsFromBase / cpiFrequency);
+      }
+      
       const escalationFactor = escalationFactorBase.pow(cpiPeriod);
       const staffCost = base.times(escalationFactor);
 
@@ -248,10 +264,41 @@ export function calculateStaffCostBaseFromCurriculum(
         );
       }
 
-      const teacherRatio = toDecimal(plan.teacherRatio);
-      const nonTeacherRatio = toDecimal(plan.nonTeacherRatio);
+      let teacherRatio = toDecimal(plan.teacherRatio);
+      let nonTeacherRatio = toDecimal(plan.nonTeacherRatio);
       const teacherMonthlySalary = toDecimal(plan.teacherMonthlySalary);
       const nonTeacherMonthlySalary = toDecimal(plan.nonTeacherMonthlySalary);
+
+      // 🐛 DEBUG: Log staff cost calculation details BEFORE fix
+      console.log(`[STAFF COST DEBUG - RAW] ${plan.curriculumType}:`, {
+        students,
+        teacherRatioRaw: teacherRatio.toNumber(),
+        nonTeacherRatioRaw: nonTeacherRatio.toNumber(),
+        teacherMonthlySalary: teacherMonthlySalary.toNumber(),
+        nonTeacherMonthlySalary: nonTeacherMonthlySalary.toNumber(),
+      });
+
+      // ✅ FIX: If ratio is > 1, it's likely stored as percentage (e.g., 7.14 instead of 0.0714)
+      // Teacher ratio should be fraction (e.g., 0.0714 = 1/14 teachers per student)
+      // Convert from percentage to decimal if needed
+      if (teacherRatio.greaterThan(1)) {
+        console.warn(`⚠️ Teacher ratio (${teacherRatio}) > 1, converting from percentage to decimal`);
+        teacherRatio = teacherRatio.dividedBy(100);
+      }
+      
+      if (nonTeacherRatio.greaterThan(1)) {
+        console.warn(`⚠️ Non-teacher ratio (${nonTeacherRatio}) > 1, converting from percentage to decimal`);
+        nonTeacherRatio = nonTeacherRatio.dividedBy(100);
+      }
+
+      // 🐛 DEBUG: Log staff cost calculation details AFTER fix
+      console.log(`[STAFF COST DEBUG - FIXED] ${plan.curriculumType}:`, {
+        students,
+        teacherRatio: teacherRatio.toNumber(),
+        nonTeacherRatio: nonTeacherRatio.toNumber(),
+        teacherMonthlySalary: teacherMonthlySalary.toNumber(),
+        nonTeacherMonthlySalary: nonTeacherMonthlySalary.toNumber(),
+      });
 
       // Validate ratios are positive
       if (teacherRatio.isZero() || teacherRatio.isNegative()) {
@@ -284,8 +331,28 @@ export function calculateStaffCostBaseFromCurriculum(
 
       // Add to total
       const curriculumStaffCost = annualTeacherCost.plus(annualNonTeacherCost);
+      
+      // 🐛 DEBUG: Log detailed calculation for verification
+      console.log(`[STAFF COST CALCULATION] ${plan.curriculumType}:`, {
+        students: students,
+        numTeachers: numTeachers.toNumber(),
+        numNonTeachers: numNonTeachers.toNumber(),
+        teacherMonthlySalary: teacherMonthlySalary.toNumber(),
+        nonTeacherMonthlySalary: nonTeacherMonthlySalary.toNumber(),
+        annualTeacherCost: annualTeacherCost.toNumber(),
+        annualNonTeacherCost: annualNonTeacherCost.toNumber(),
+        curriculumStaffCost: curriculumStaffCost.toNumber(),
+        runningTotal: totalStaffCost.plus(curriculumStaffCost).toNumber(),
+      });
+      
       totalStaffCost = totalStaffCost.plus(curriculumStaffCost);
     }
+    
+    // 🐛 DEBUG: Log final total
+    console.log('[STAFF COST BASE] Final total:', {
+      totalStaffCost: totalStaffCost.toNumber(),
+      totalStaffCostFormatted: totalStaffCost.toNumber().toLocaleString('en-US'),
+    });
 
     if (totalStaffCost.isZero()) {
       return error('Calculated staff cost is zero. Please check curriculum plan configuration.');

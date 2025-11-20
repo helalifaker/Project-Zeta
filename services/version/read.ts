@@ -21,7 +21,7 @@ export interface ListVersionsParams {
 
 export type VersionListItem = Omit<VersionWithRelations, 'curriculumPlans' | 'rentPlan' | 'capexItems' | 'opexSubAccounts'> & {
   _count: {
-    curriculumPlans: number;
+    curriculum_plans: number;
     derivatives: number;
   };
 };
@@ -168,7 +168,7 @@ export async function listVersions(
     const actualLimit = Math.min(limit, 100); // Max 100
 
     // Build where clause
-    const where: Prisma.VersionWhereInput = {
+    const where: Prisma.versionsWhereInput = {
       createdBy: userId, // Users can only see their own versions
     };
 
@@ -193,7 +193,7 @@ export async function listVersions(
     // Validate sortBy
     const validSortFields = ['name', 'createdAt', 'updatedAt'];
     const sortField = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
-    const orderBy: Prisma.VersionOrderByWithRelationInput = {
+    const orderBy: Prisma.versionsOrderByWithRelationInput = {
       [sortField]: sortOrder === 'asc' ? 'asc' : 'desc',
     };
 
@@ -222,7 +222,7 @@ export async function listVersions(
         },
         _count: {
           select: {
-            curriculumPlans: true,
+            curriculum_plans: true,
             derivatives: true,
           },
         },
@@ -230,7 +230,7 @@ export async function listVersions(
     });
 
     return success({
-      versions: versions as VersionListItem[],
+      versions: versions as unknown as VersionListItem[],
       pagination: {
         page,
         limit: actualLimit,

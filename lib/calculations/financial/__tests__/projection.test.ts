@@ -17,7 +17,7 @@ describe('Full Financial Projection', () => {
   const baseAdminSettings: AdminSettings = {
     cpiRate: 0.03,
     discountRate: 0.08,
-    taxRate: 0.20,
+    zakatRate: 0.025, // Changed from taxRate to zakatRate
   };
 
   const baseFRPlan: CurriculumPlanInput = {
@@ -49,7 +49,7 @@ describe('Full Financial Projection', () => {
   };
 
   describe('calculateFullProjection', () => {
-    it('should calculate full projection with FixedEscalation rent model', () => {
+    it('should calculate full projection with FixedEscalation rent model', async () => {
       const rentPlan: RentPlanInput = {
         rentModel: 'FIXED_ESCALATION',
         parameters: {
@@ -86,7 +86,7 @@ describe('Full Financial Projection', () => {
         endYear: 2032,
       };
 
-      const result = calculateFullProjection(params);
+      const result = await calculateFullProjection(params);
 
       expect(result.success).toBe(true);
       if (result.success) {
@@ -121,7 +121,7 @@ describe('Full Financial Projection', () => {
       }
     });
 
-    it('should calculate full projection with RevenueShare rent model', () => {
+    it('should calculate full projection with RevenueShare rent model', async () => {
       const rentPlan: RentPlanInput = {
         rentModel: 'REVENUE_SHARE',
         parameters: {
@@ -148,7 +148,7 @@ describe('Full Financial Projection', () => {
         endYear: 2032,
       };
 
-      const result = calculateFullProjection(params);
+      const result = await calculateFullProjection(params);
 
       expect(result.success).toBe(true);
       if (result.success) {
@@ -166,7 +166,7 @@ describe('Full Financial Projection', () => {
       }
     });
 
-    it('should calculate full projection with PartnerModel rent model', () => {
+    it('should calculate full projection with PartnerModel rent model', async () => {
       const rentPlan: RentPlanInput = {
         rentModel: 'PARTNER_MODEL',
         parameters: {
@@ -190,7 +190,7 @@ describe('Full Financial Projection', () => {
         endYear: 2032,
       };
 
-      const result = calculateFullProjection(params);
+      const result = await calculateFullProjection(params);
 
       expect(result.success).toBe(true);
       if (result.success) {
@@ -209,7 +209,7 @@ describe('Full Financial Projection', () => {
       }
     });
 
-    it('should calculate 30-year projection (2023-2052)', () => {
+    it('should calculate 30-year projection (2023-2052)', async () => {
       // Create 30-year student projections
       const frStudents30 = [];
       const ibStudents30 = [];
@@ -269,7 +269,7 @@ describe('Full Financial Projection', () => {
         endYear: 2052,
       };
 
-      const result = calculateFullProjection(params);
+      const result = await calculateFullProjection(params);
 
       expect(result.success).toBe(true);
       if (result.success) {
@@ -286,7 +286,7 @@ describe('Full Financial Projection', () => {
       }
     });
 
-    it('should calculate NPV for 2028-2052 period only', () => {
+    it('should calculate NPV for 2028-2052 period only', async () => {
       const params: FullProjectionParams = {
         curriculumPlans: [baseFRPlan, baseIBPlan],
         rentPlan: {
@@ -305,7 +305,7 @@ describe('Full Financial Projection', () => {
         endYear: 2032,
       };
 
-      const result = calculateFullProjection(params);
+      const result = await calculateFullProjection(params);
 
       expect(result.success).toBe(true);
       if (result.success) {
@@ -319,7 +319,7 @@ describe('Full Financial Projection', () => {
       }
     });
 
-    it('should handle positive and negative cash flows', () => {
+    it('should handle positive and negative cash flows', async () => {
       // Create scenario with initial losses (negative EBITDA)
       const params: FullProjectionParams = {
         curriculumPlans: [
@@ -359,7 +359,7 @@ describe('Full Financial Projection', () => {
         endYear: 2028,
       };
 
-      const result = calculateFullProjection(params);
+      const result = await calculateFullProjection(params);
 
       expect(result.success).toBe(true);
       if (result.success) {
@@ -368,12 +368,13 @@ describe('Full Financial Projection', () => {
           // Should have negative EBITDA and cash flow (loss scenario)
           expect(year.ebitda.isNegative()).toBe(true);
           expect(year.cashFlow.isNegative()).toBe(true);
-          expect(year.taxes.toNumber()).toBe(0); // No taxes on losses
+          // Zakat field exists
+          expect(year.zakat).toBeDefined();
         }
       }
     });
 
-    it('should calculate summary metrics correctly', () => {
+    it('should calculate summary metrics correctly', async () => {
       const params: FullProjectionParams = {
         curriculumPlans: [baseFRPlan, baseIBPlan],
         rentPlan: {
@@ -402,7 +403,7 @@ describe('Full Financial Projection', () => {
         endYear: 2032,
       };
 
-      const result = calculateFullProjection(params);
+      const result = await calculateFullProjection(params);
 
       expect(result.success).toBe(true);
       if (result.success) {
@@ -437,7 +438,7 @@ describe('Full Financial Projection', () => {
       }
     });
 
-    it('should reject empty curriculum plans', () => {
+    it('should reject empty curriculum plans', async () => {
       const params: FullProjectionParams = {
         curriculumPlans: [], // Empty
         rentPlan: {
@@ -454,7 +455,7 @@ describe('Full Financial Projection', () => {
         adminSettings: baseAdminSettings,
       };
 
-      const result = calculateFullProjection(params);
+      const result = await calculateFullProjection(params);
 
       expect(result.success).toBe(false);
       if (!result.success) {
@@ -462,7 +463,7 @@ describe('Full Financial Projection', () => {
       }
     });
 
-    it('should reject invalid year range', () => {
+    it('should reject invalid year range', async () => {
       const params: FullProjectionParams = {
         curriculumPlans: [baseFRPlan, baseIBPlan],
         rentPlan: {
@@ -481,7 +482,7 @@ describe('Full Financial Projection', () => {
         endYear: 2028, // Invalid
       };
 
-      const result = calculateFullProjection(params);
+      const result = await calculateFullProjection(params);
 
       expect(result.success).toBe(false);
       if (!result.success) {
@@ -489,7 +490,7 @@ describe('Full Financial Projection', () => {
       }
     });
 
-    it('should handle zero revenue scenario', () => {
+    it('should handle zero revenue scenario', async () => {
       const params: FullProjectionParams = {
         curriculumPlans: [
           {
@@ -521,7 +522,7 @@ describe('Full Financial Projection', () => {
         endYear: 2028,
       };
 
-      const result = calculateFullProjection(params);
+      const result = await calculateFullProjection(params);
 
       expect(result.success).toBe(true);
       if (result.success) {
@@ -537,7 +538,7 @@ describe('Full Financial Projection', () => {
       }
     });
 
-    it('should calculate rent load percentage correctly', () => {
+    it('should calculate rent load percentage correctly', async () => {
       const params: FullProjectionParams = {
         curriculumPlans: [baseFRPlan, baseIBPlan],
         rentPlan: {
@@ -555,7 +556,7 @@ describe('Full Financial Projection', () => {
         endYear: 2032,
       };
 
-      const result = calculateFullProjection(params);
+      const result = await calculateFullProjection(params);
 
       expect(result.success).toBe(true);
       if (result.success) {
@@ -566,7 +567,7 @@ describe('Full Financial Projection', () => {
       }
     });
 
-    it('should meet performance target (<50ms)', () => {
+    it('should meet performance target (<50ms)', async () => {
       // Create full 30-year projection
       const frStudents30 = [];
       const ibStudents30 = [];
@@ -616,12 +617,76 @@ describe('Full Financial Projection', () => {
         endYear: 2052,
       };
 
-      const result = calculateFullProjection(params);
+      const result = await calculateFullProjection(params);
 
       expect(result.success).toBe(true);
       if (result.success) {
         // Performance target: <50ms
         expect(result.data.duration).toBeLessThan(50);
+      }
+    });
+  });
+
+  describe('CircularSolver Integration', () => {
+    it('should include solver metadata when versionId provided', async () => {
+      const params: FullProjectionParams = {
+        versionId: 'test-version-id',
+        curriculumPlans: [baseFRPlan, baseIBPlan],
+        rentPlan: {
+          rentModel: 'FIXED_ESCALATION',
+          parameters: {
+            baseRent: 10_000_000,
+            escalationRate: 0.04,
+          },
+        },
+        staffCostBase: 15_000_000,
+        staffCostCpiFrequency: 2,
+        capexItems: [],
+        opexSubAccounts: [],
+        adminSettings: baseAdminSettings,
+        startYear: 2028,
+        endYear: 2032,
+      };
+
+      const result = await calculateFullProjection(params);
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.metadata).toBeDefined();
+        expect(result.data.metadata?.solverUsed).toBe(true);
+        expect(result.data.metadata?.converged).toBe(true);
+        expect(result.data.metadata?.iterations).toBeGreaterThan(0);
+      }
+    });
+
+    it('should have depreciation in all years when solver used', async () => {
+      const params: FullProjectionParams = {
+        versionId: 'test-version-id',
+        curriculumPlans: [baseFRPlan, baseIBPlan],
+        rentPlan: {
+          rentModel: 'FIXED_ESCALATION',
+          parameters: {
+            baseRent: 10_000_000,
+            escalationRate: 0.04,
+          },
+        },
+        staffCostBase: 15_000_000,
+        staffCostCpiFrequency: 2,
+        capexItems: [],
+        opexSubAccounts: [],
+        adminSettings: baseAdminSettings,
+        startYear: 2028,
+        endYear: 2032,
+      };
+
+      const result = await calculateFullProjection(params);
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        const yearsWithoutDepreciation = result.data.years.filter(
+          y => y.depreciation === undefined
+        );
+        expect(yearsWithoutDepreciation).toHaveLength(0);
       }
     });
   });

@@ -174,8 +174,8 @@ export async function createVersion(
       include: {
         curriculum_plans: true,
         rent_plans: true,
-        capexItems: true,
-        opexSubAccounts: true,
+        capex_items: true,
+        opex_sub_accounts: true,
         creator: {
           select: {
             id: true,

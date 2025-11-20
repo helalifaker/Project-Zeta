@@ -19,6 +19,8 @@ import Decimal from 'decimal.js';
 import { toDecimal, safeDivide } from '../decimal-helpers';
 import type { Result } from '@/types/result';
 import { success, error } from '@/types/result';
+import { getPeriodForYear, isHistoricalYear } from '@/lib/utils/period-detection';
+import { PrismaClient } from '@prisma/client';
 
 // Import calculation modules
 import { calculateTuitionGrowth, type TuitionGrowthParams } from '../revenue/tuition-growth';
@@ -27,13 +29,16 @@ import { calculateRent, type RentCalculationParams } from '../rent';
 import { calculateStaffCosts, type StaffCostParams } from './staff-costs';
 import { calculateOpex, type OpexParams } from './opex';
 import { calculateEBITDA, type EBITDAParams } from './ebitda';
-import { calculateCashFlow, type CashFlowParams } from './cashflow';
 import { calculateNPV, type NPVParams } from './npv';
+import { CircularSolver, type SolverParams } from './circular-solver';
+
+// Initialize Prisma client for historical actuals fetching
+const prisma = new PrismaClient();
 
 export interface AdminSettings {
   cpiRate: Decimal | number | string;
   discountRate: Decimal | number | string;
-  taxRate: Decimal | number | string;
+  zakatRate: Decimal | number | string; // Zakat rate (2.5% default for Saudi Arabia)
 }
 
 export interface CurriculumPlanInput {
@@ -64,6 +69,32 @@ export interface FullProjectionParams {
   adminSettings: AdminSettings;
   startYear?: number; // Default: 2023
   endYear?: number; // Default: 2052
+  // Other Revenue (optional - can be provided directly or fetched if versionId provided)
+  otherRevenueByYear?: Array<{ year: number; amount: Decimal | number | string }>;
+  versionId?: string; // If provided, will fetch Other Revenue if otherRevenueByYear not provided
+  versionMode?: 'RELOCATION_2028' | 'HISTORICAL_BASELINE'; // Version mode (default: RELOCATION_2028)
+
+  // Balance Sheet Settings (optional - will be fetched if versionId provided)
+  balanceSheetSettings?: {
+    startingCash: Decimal | number | string;
+    openingEquity: Decimal | number | string;
+  };
+
+  // Depreciation Rate (optional - default: 0.10 = 10%)
+  depreciationRate?: Decimal | number | string;
+
+  // Planning Periods Support
+  transitionCapacity?: number; // Student capacity cap for transition period (2025-2027), default: 1850
+
+  // Historical Actuals (optional - pre-fetched for client-side calls)
+  historicalActuals?: Array<{
+    year: number;
+    revenue: Decimal | number | string;
+    staffCost: Decimal | number | string;
+    rent: Decimal | number | string;
+    opex: Decimal | number | string;
+    capex: Decimal | number | string;
+  }>;
 }
 
 export interface YearlyProjection {
@@ -82,11 +113,23 @@ export interface YearlyProjection {
   ebitda: Decimal;
   ebitdaMargin: Decimal;
   capex: Decimal;
-  interest: Decimal;
-  taxes: Decimal;
-  cashFlow: Decimal;
+  interest: Decimal; // Deprecated: use interestExpense
+  taxes: Decimal; // Deprecated: use zakat
+  cashFlow: Decimal; // Deprecated: use netCashFlow
   // Metrics
   rentLoad: Decimal; // (Rent / Revenue) × 100
+  
+  // ✅ ADD: Fields from CircularSolver (make optional to avoid breaking existing code)
+  depreciation?: Decimal;
+  interestExpense?: Decimal;
+  interestIncome?: Decimal;
+  zakat?: Decimal;
+  netResult?: Decimal; // Net Income
+  workingCapitalChange?: Decimal;
+  operatingCashFlow?: Decimal;
+  investingCashFlow?: Decimal;
+  financingCashFlow?: Decimal;
+  netCashFlow?: Decimal;
 }
 
 export interface FullProjectionResult {
@@ -104,7 +147,16 @@ export interface FullProjectionResult {
     avgEBITDAMargin: Decimal;
     avgRentLoad: Decimal; // Average rent load % (2028-2052)
   };
+  metadata?: ProjectionMetadata; // CircularSolver convergence data
   duration: number; // milliseconds
+}
+
+export interface ProjectionMetadata {
+  converged: boolean;
+  iterations: number;
+  maxError: Decimal;
+  duration: number;
+  solverUsed: boolean;
 }
 
 /**
@@ -121,12 +173,12 @@ export interface FullProjectionResult {
  *   staffCostCpiFrequency: 2,
  *   capexItems: [{ year: 2028, amount: 2_000_000 }],
  *   opexSubAccounts: [{ subAccountName: 'Marketing', percentOfRevenue: 0.03, isFixed: false, fixedAmount: null }],
- *   adminSettings: { cpiRate: 0.03, discountRate: 0.08, taxRate: 0.20 }
+ *   adminSettings: { cpiRate: 0.03, discountRate: 0.08, zakatRate: 0.025 }
  * });
  */
-export function calculateFullProjection(
+export async function calculateFullProjection(
   params: FullProjectionParams
-): Result<FullProjectionResult> {
+): Promise<Result<FullProjectionResult>> {
   const startTime = performance.now();
 
   try {
@@ -140,6 +192,7 @@ export function calculateFullProjection(
       adminSettings,
       startYear = 2023,
       endYear = 2052,
+      versionMode,
     } = params;
 
     // Validate inputs
@@ -161,7 +214,107 @@ export function calculateFullProjection(
 
     const cpiRate = toDecimal(adminSettings.cpiRate);
     const discountRate = toDecimal(adminSettings.discountRate);
-    const taxRate = toDecimal(adminSettings.taxRate);
+    const zakatRate = toDecimal(adminSettings.zakatRate);
+
+    // ✅ FIX 1: Fetch Other Revenue (aggregate once, not per curriculum)
+    let otherRevenueByYear: Array<{ year: number; amount: Decimal }> = [];
+
+    if (params.otherRevenueByYear) {
+      // Use provided Other Revenue
+      otherRevenueByYear = params.otherRevenueByYear.map(item => ({
+        year: item.year,
+        amount: toDecimal(item.amount),
+      }));
+    } else if (params.versionId) {
+      // TODO: Fetch from database via service layer (will be implemented in Fix 4)
+      // For now, continue with empty array (graceful degradation)
+      // const otherRevenueResult = await getOtherRevenueByVersion(params.versionId);
+      // if (otherRevenueResult.success) {
+      //   otherRevenueByYear = otherRevenueResult.data.map(item => ({
+      //     year: item.year,
+      //     amount: toDecimal(item.amount),
+      //   }));
+      // }
+    }
+
+    // 🆕 PLANNING PERIODS: Fetch historical actuals (2023-2024)
+    const historicalActualsMap = new Map<number, {
+      revenue: Decimal;
+      staffCost: Decimal;
+      rent: Decimal;
+      opex: Decimal;
+      capex: Decimal;
+    }>();
+
+    // 🔄 Historical Actuals: Check if passed directly or fetch from Prisma (server-side only)
+    if (params.historicalActuals) {
+      // Use pre-fetched historical actuals (for client-side calls)
+      console.log(`[calculateFullProjection] 📊 Using ${params.historicalActuals.length} pre-fetched historical records`);
+
+      params.historicalActuals.forEach(h => {
+        const mappedData = {
+          revenue: toDecimal(h.revenue),
+          staffCost: toDecimal(h.staffCost),
+          rent: toDecimal(h.rent),
+          opex: toDecimal(h.opex),
+          capex: toDecimal(h.capex),
+        };
+
+        console.log(`[calculateFullProjection] Year ${h.year} historical data:`, {
+          revenue: mappedData.revenue.toString(),
+          staffCost: mappedData.staffCost.toString(),
+          rent: mappedData.rent.toString(),
+          opex: mappedData.opex.toString(),
+          capex: mappedData.capex.toString(),
+        });
+
+        historicalActualsMap.set(h.year, mappedData);
+      });
+    } else if (params.versionId && typeof window === 'undefined') {
+      // Only fetch from Prisma on server-side (when window is undefined)
+      try {
+        const historicalData = await prisma.historical_actuals.findMany({
+          where: {
+            versionId: params.versionId,
+            year: { in: [2023, 2024] }
+          }
+        });
+
+        console.log(`[calculateFullProjection] 📊 Fetched ${historicalData.length} historical records from DB`);
+
+        historicalData.forEach(h => {
+          const mappedData = {
+            // Use totalRevenues from complete financial statements
+            revenue: new Decimal(h.totalRevenues.toString()),
+            // Use salariesAndRelatedCosts instead of old staffCost field
+            staffCost: new Decimal(h.salariesAndRelatedCosts.toString()),
+            // Use schoolRent instead of old rent field
+            rent: new Decimal(h.schoolRent.toString()),
+            // Use totalOperatingExpenses minus salaries and rent for opex
+            opex: new Decimal(h.totalOperatingExpenses.toString())
+              .minus(new Decimal(h.salariesAndRelatedCosts.toString()))
+              .minus(new Decimal(h.schoolRent.toString())),
+            // Use cfAdditionsFixedAssets (capital additions) for capex
+            capex: new Decimal(h.cfAdditionsFixedAssets.toString()).abs(),
+          };
+
+          historicalActualsMap.set(h.year, mappedData);
+        });
+
+        console.log(`[calculateFullProjection] ✅ Historical actuals map size: ${historicalActualsMap.size}`);
+      } catch (err) {
+        // If fetching historical actuals fails, continue without them
+        console.error('[calculateFullProjection] ❌ Failed to fetch historical actuals:', err);
+      }
+    }
+
+    // 🆕 PLANNING PERIODS: Get transition rent from rent_plans.parameters
+    const transitionRent = rentPlan.parameters.transitionRent
+      ? toDecimal(rentPlan.parameters.transitionRent)
+      : new Decimal(0);
+
+    // 🆕 PLANNING PERIODS: Get transition capacity (default: 1850)
+    const transitionCapacity = params.transitionCapacity ?? 1850;
 
     // STEP 1 & 2: Calculate tuition growth and revenue for each curriculum
     const tuitionByCurriculum: Record<string, Array<{ year: number; tuition: Decimal }>> = {};
@@ -202,10 +355,32 @@ export function calculateFullProjection(
         tuition: item.tuition,
       }));
 
+      // 🆕 PLANNING PERIODS: Apply capacity cap for transition period (2025-2027)
+      const adjustedStudentsProjection = curriculumPlan.studentsProjection.map(s => {
+        const period = getPeriodForYear(s.year);
+        if (period === 'TRANSITION') {
+          // Calculate total students across all curricula for this year to enforce cap
+          const totalStudentsThisYear = curriculumPlans.reduce((sum, plan) => {
+            const yearData = plan.studentsProjection.find(sp => sp.year === s.year);
+            return sum + (yearData?.students || 0);
+          }, 0);
+
+          // If total exceeds cap, proportionally reduce this curriculum's students
+          if (totalStudentsThisYear > transitionCapacity) {
+            const reductionFactor = transitionCapacity / totalStudentsThisYear;
+            return {
+              year: s.year,
+              students: Math.floor(s.students * reductionFactor)
+            };
+          }
+        }
+        return s;
+      });
+
       // Calculate revenue using tuition growth results
       const revenueParams: RevenueParams = {
         tuitionByYear: tuitionResult.data,
-        studentsByYear: curriculumPlan.studentsProjection,
+        studentsByYear: adjustedStudentsProjection, // Use adjusted students
       };
 
       const revenueResult = calculateRevenue(revenueParams);
@@ -229,8 +404,37 @@ export function calculateFullProjection(
       }
     }
 
-    // STEP 3: Calculate rent (may depend on revenue for RevenueShare model)
+    // ✅ FIX 1: Add Other Revenue to total revenue (after summing curricula)
+    // 🆕 PLANNING PERIODS: Use historical actual revenue for 2023-2024
+    const totalRevenueByYear: Array<{ year: number; revenue: Decimal }> = revenueByYear.map(item => {
+      const period = getPeriodForYear(item.year);
+
+      if (period === 'HISTORICAL') {
+        // Use historical actual data
+        const historical = historicalActualsMap.get(item.year);
+        return {
+          year: item.year,
+          revenue: historical?.revenue ?? item.revenue // Fallback to calculated if no historical data
+        };
+      } else {
+        // TRANSITION + DYNAMIC: Use calculated revenue + other revenue
+        const otherRev = otherRevenueByYear.find(or => or.year === item.year);
+        const totalRevenue = otherRev
+          ? item.revenue.plus(otherRev.amount)
+          : item.revenue;
+        return { year: item.year, revenue: totalRevenue };
+      }
+    });
+
+    // STEP 3: Calculate rent with PERIOD-AWARE logic
+    // 🆕 PLANNING PERIODS: Different rent calculation for each period
+    // - HISTORICAL (2023-2024): Use actual data from database
+    // - TRANSITION (2025-2027): Use manual transitionRent
+    // - DYNAMIC (2028-2052): Use rent model calculation
     let rentByYear: Array<{ year: number; rent: Decimal }> = [];
+
+    // First, calculate dynamic period rent (2028-2052) using existing rent model
+    let dynamicRentByYear: Array<{ year: number; rent: Decimal }> = [];
 
     if (rentPlan.rentModel === 'FIXED_ESCALATION') {
       const rentParams: RentCalculationParams = {
@@ -238,8 +442,8 @@ export function calculateFullProjection(
         baseRent: (rentPlan.parameters.baseRent as Decimal | number | string) ?? 0,
         escalationRate: (rentPlan.parameters.escalationRate as Decimal | number | string) ?? 0,
         frequency: (rentPlan.parameters.frequency as number) ?? undefined,
-        startYear,
-        endYear,
+        startYear: 2028, // Only calculate for dynamic period
+        endYear: 2052,
       };
 
       const rentResult = calculateRent(rentParams);
@@ -247,14 +451,17 @@ export function calculateFullProjection(
         return rentResult;
       }
 
-      rentByYear = (rentResult.data as Array<{ year: number; rent: Decimal }>).map((item) => ({
+      dynamicRentByYear = (rentResult.data as Array<{ year: number; rent: Decimal }>).map((item) => ({
         year: item.year,
         rent: item.rent,
       }));
     } else if (rentPlan.rentModel === 'REVENUE_SHARE') {
+      // Filter revenue to only dynamic period
+      const dynamicRevenueByYear = totalRevenueByYear.filter(r => r.year >= 2028 && r.year <= 2052);
+
       const rentParams: RentCalculationParams = {
         model: 'REVENUE_SHARE',
-        revenueByYear,
+        revenueByYear: dynamicRevenueByYear,
         revenueSharePercent: (rentPlan.parameters.revenueSharePercent as Decimal | number | string) ?? 0,
       };
 
@@ -263,7 +470,7 @@ export function calculateFullProjection(
         return rentResult;
       }
 
-      rentByYear = (rentResult.data as Array<{ year: number; rent: Decimal }>).map((item) => ({
+      dynamicRentByYear = (rentResult.data as Array<{ year: number; rent: Decimal }>).map((item) => ({
         year: item.year,
         rent: item.rent,
       }));
@@ -277,8 +484,8 @@ export function calculateFullProjection(
         yieldBase: (rentPlan.parameters.yieldBase as Decimal | number | string) ?? 0,
         growthRate: (rentPlan.parameters.growthRate as Decimal | number | string) ?? undefined,
         frequency: (rentPlan.parameters.frequency as number) ?? undefined,
-        startYear,
-        endYear,
+        startYear: 2028,
+        endYear: 2052,
       };
 
       const rentResult = calculateRent(rentParams);
@@ -286,7 +493,7 @@ export function calculateFullProjection(
         return rentResult;
       }
 
-      rentByYear = (rentResult.data as Array<{ year: number; rent: Decimal }>).map((item) => ({
+      dynamicRentByYear = (rentResult.data as Array<{ year: number; rent: Decimal }>).map((item) => ({
         year: item.year,
         rent: item.rent,
       }));
@@ -294,29 +501,99 @@ export function calculateFullProjection(
       return error(`Unknown rent model: ${rentPlan.rentModel}`);
     }
 
+    // Now construct rentByYear with period-specific logic
+    for (let year = startYear; year <= endYear; year++) {
+      const period = getPeriodForYear(year);
+
+      if (period === 'HISTORICAL') {
+        // Use historical actual data
+        const historical = historicalActualsMap.get(year);
+        rentByYear.push({
+          year,
+          rent: historical?.rent ?? new Decimal(0)
+        });
+      } else if (period === 'TRANSITION') {
+        // Use manual transition rent
+        rentByYear.push({
+          year,
+          rent: transitionRent
+        });
+      } else {
+        // Use calculated dynamic rent
+        const dynamicRent = dynamicRentByYear.find(r => r.year === year);
+        rentByYear.push({
+          year,
+          rent: dynamicRent?.rent ?? new Decimal(0)
+        });
+      }
+    }
+
     // STEP 4: Calculate staff costs (with CPI growth)
+    // ✅ FIX: Use the same baseYear that was used to calculate staffCostBase
+    // For RELOCATION_2028 mode, staffCostBase is calculated for year 2028, so baseYear should be 2028
+    // For HISTORICAL_BASELINE mode, staffCostBase is calculated for year 2023, so baseYear should be 2023
+    // This ensures year 2028 (or 2023) has CPI period 0 (no growth) in staff cost calculation
+    // Get versionMode from params (default to RELOCATION_2028 if not provided)
+    const mode = versionMode || 'RELOCATION_2028';
+    const staffCostBaseYear = mode === 'RELOCATION_2028' ? 2028 : 2023;
+    
     const staffCostParams: StaffCostParams = {
       baseStaffCost: staffCostBase,
       cpiRate,
       cpiFrequency: staffCostCpiFrequency,
-      baseYear: startYear,
+      baseYear: staffCostBaseYear, // ✅ FIX: Use 2028 for relocation, 2023 for historical
       startYear,
       endYear,
     };
+    
+    // 🐛 DEBUG: Log staff cost calculation parameters
+    console.log('[STAFF COST CPI DEBUG]', {
+      versionMode: mode,
+      staffCostBase: typeof staffCostBase === 'object' ? staffCostBase.toNumber() : Number(staffCostBase),
+      cpiRate: cpiRate.toNumber(),
+      cpiFrequency: staffCostCpiFrequency,
+      staffCostBaseYear,
+      startYear,
+      endYear,
+      year2028Period: Math.floor((2028 - staffCostBaseYear) / staffCostCpiFrequency),
+      year2028Factor: Decimal.add(1, cpiRate).pow(Math.floor((2028 - staffCostBaseYear) / staffCostCpiFrequency)).toNumber(),
+      year2028StaffCost: (typeof staffCostBase === 'object' ? staffCostBase : new Decimal(staffCostBase)).times(
+        Decimal.add(1, cpiRate).pow(Math.floor((2028 - staffCostBaseYear) / staffCostCpiFrequency))
+      ).toNumber(),
+    });
 
     const staffCostResult = calculateStaffCosts(staffCostParams);
     if (!staffCostResult.success) {
       return staffCostResult;
     }
 
-    const staffCostByYear = staffCostResult.data.map((item) => ({
-      year: item.year,
-      staffCost: item.staffCost,
-    }));
+    // 🆕 PLANNING PERIODS: Apply period-specific staff cost logic
+    // - HISTORICAL (2023-2024): Use actual data
+    // - TRANSITION + DYNAMIC (2025-2052): Use calculated staff costs
+    const staffCostByYear: Array<{ year: number; staffCost: Decimal }> = [];
+
+    for (const item of staffCostResult.data) {
+      const period = getPeriodForYear(item.year);
+
+      if (period === 'HISTORICAL') {
+        // Use historical actual data
+        const historical = historicalActualsMap.get(item.year);
+        staffCostByYear.push({
+          year: item.year,
+          staffCost: historical?.staffCost ?? item.staffCost // Fallback to calculated if no historical data
+        });
+      } else {
+        // TRANSITION + DYNAMIC: Use calculated staff costs
+        staffCostByYear.push({
+          year: item.year,
+          staffCost: item.staffCost
+        });
+      }
+    }
 
     // STEP 5: Calculate opex
     const opexParams: OpexParams = {
-      revenueByYear,
+      revenueByYear: totalRevenueByYear, // ✅ FIX 1: Use totalRevenue (includes Other Revenue)
       subAccounts: opexSubAccounts,
     };
 
@@ -325,14 +602,33 @@ export function calculateFullProjection(
       return opexResult;
     }
 
-    const opexByYear = opexResult.data.map((item) => ({
-      year: item.year,
-      totalOpex: item.totalOpex,
-    }));
+    // 🆕 PLANNING PERIODS: Apply period-specific opex logic
+    // - HISTORICAL (2023-2024): Use actual data
+    // - TRANSITION + DYNAMIC (2025-2052): Use calculated opex
+    const opexByYear: Array<{ year: number; totalOpex: Decimal }> = [];
+
+    for (const item of opexResult.data) {
+      const period = getPeriodForYear(item.year);
+
+      if (period === 'HISTORICAL') {
+        // Use historical actual data
+        const historical = historicalActualsMap.get(item.year);
+        opexByYear.push({
+          year: item.year,
+          totalOpex: historical?.opex ?? item.totalOpex // Fallback to calculated if no historical data
+        });
+      } else {
+        // TRANSITION + DYNAMIC: Use calculated opex
+        opexByYear.push({
+          year: item.year,
+          totalOpex: item.totalOpex
+        });
+      }
+    }
 
     // STEP 6: Calculate EBITDA
     const ebitdaParams: EBITDAParams = {
-      revenueByYear,
+      revenueByYear: totalRevenueByYear, // ✅ FIX 1: Use totalRevenue (includes Other Revenue)
       staffCostByYear,
       rentByYear,
       opexByYear,
@@ -343,22 +639,186 @@ export function calculateFullProjection(
       return ebitdaResult;
     }
 
-    // STEP 7: Calculate cash flow
-    const cashFlowParams: CashFlowParams = {
-      ebitdaByYear: ebitdaResult.data.map((item) => ({
-        year: item.year,
-        ebitda: item.ebitda,
-      })),
-      capexItems: capexItems.map((item) => ({
-        year: item.year,
-        amount: toDecimal(item.amount),
-      })),
-      taxRate,
-    };
+    // ✅ FIX 3: Integrate CircularSolver for Balance Sheet and Cash Flow calculations
+    let solverResult: Awaited<ReturnType<CircularSolver['solve']>> | null = null; // Returns SolverResult<SolverResult>
+    let cashFlowResult: { success: true; data: Array<{
+      year: number;
+      ebitda: Decimal;
+      depreciation: Decimal;
+      interestExpense: Decimal;
+      interestIncome: Decimal;
+      zakat: Decimal;
+      netIncome: Decimal;
+      workingCapitalChange: Decimal;
+      operatingCashFlow: Decimal;
+      investingCashFlow: Decimal;
+      financingCashFlow: Decimal;
+      netCashFlow: Decimal;
+      capex: Decimal;
+      interest: Decimal;
+      cashFlow: Decimal;
+    }> } | null = null;
 
-    const cashFlowResult = calculateCashFlow(cashFlowParams);
-    if (!cashFlowResult.success) {
-      return cashFlowResult;
+    // Only run CircularSolver if versionId is provided (required for solver)
+    if (params.versionId) {
+      try {
+        // ✅ FIX 3: Get versionMode from params or default to RELOCATION_2028
+        const versionMode = params.versionMode || 'RELOCATION_2028';
+
+        // ✅ FIX 3: Calculate fixedAssetsOpening from historical capex (before startYear)
+        const fixedAssetsOpening = capexItems
+          .filter(item => {
+            const itemYear = typeof item.year === 'number' ? item.year : parseInt(String(item.year), 10);
+            return itemYear < startYear;
+          })
+          .reduce((sum, item) => sum.plus(toDecimal(item.amount)), new Decimal(0));
+
+        // ✅ FIX 3: Get depreciationRate from params or use default (10%)
+        const depreciationRate = params.depreciationRate 
+          ? toDecimal(params.depreciationRate)
+          : new Decimal(0.10); // Default: 10% straight-line
+        // TODO: Fetch from admin settings when service layer is ready
+
+        // ✅ FIX 3: Get balance sheet settings from params or use defaults
+        const startingCash = params.balanceSheetSettings?.startingCash
+          ? toDecimal(params.balanceSheetSettings.startingCash)
+          : new Decimal(5_000_000); // Default: 5M SAR
+        const openingEquity = params.balanceSheetSettings?.openingEquity
+          ? toDecimal(params.balanceSheetSettings.openingEquity)
+          : new Decimal(55_000_000); // Default: 55M SAR
+        // TODO: Fetch from database when service layer is ready
+
+        // Prepare 30-year arrays (2023-2052) for CircularSolver
+        const revenueArray: Decimal[] = [];
+        const ebitdaArray: Decimal[] = [];
+        const capexArray: Decimal[] = [];
+        const staffCostsArray: Decimal[] = [];
+
+        for (let year = 2023; year <= 2052; year++) {
+          const revenueItem = totalRevenueByYear.find(r => r.year === year);
+          const ebitdaItem = ebitdaResult.data.find(e => e.year === year);
+          const staffCostItem = staffCostByYear.find(s => s.year === year);
+
+          // 🆕 PLANNING PERIODS: Use historical capex for 2023-2024
+          const period = getPeriodForYear(year);
+          let capex: Decimal;
+
+          if (period === 'HISTORICAL') {
+            // Use historical actual capex
+            const historical = historicalActualsMap.get(year);
+            capex = historical?.capex ?? new Decimal(0);
+          } else {
+            // TRANSITION + DYNAMIC: Use capex from capexItems
+            const capexItem = capexItems.find(c => {
+              const cYear = typeof c.year === 'number' ? c.year : parseInt(String(c.year), 10);
+              return cYear === year;
+            });
+            capex = capexItem ? toDecimal(capexItem.amount) : new Decimal(0);
+          }
+
+          revenueArray.push(revenueItem?.revenue || new Decimal(0));
+          ebitdaArray.push(ebitdaItem?.ebitda || new Decimal(0));
+          capexArray.push(capex);
+          staffCostsArray.push(staffCostItem?.staffCost || new Decimal(0));
+        }
+
+        // Call CircularSolver
+        const solver = new CircularSolver();
+        const solverParams: SolverParams = {
+          versionId: params.versionId,
+          versionMode,
+          revenue: revenueArray,
+          ebitda: ebitdaArray,
+          capex: capexArray,
+          fixedAssetsOpening,
+          depreciationRate,
+          staffCosts: staffCostsArray,
+          startingCash,
+          openingEquity,
+        };
+
+        solverResult = await solver.solve(solverParams);
+
+        if (solverResult.success && solverResult.data.converged) {
+          // ✅ FIX 3: Convert solver results to CashFlowResult format (year-based mapping)
+          const solverYearMap = new Map(solverResult.data.projection.map(y => [y.year, y]));
+          
+          cashFlowResult = {
+            success: true,
+            data: ebitdaResult.data.map(item => {
+              const solverYear = solverYearMap.get(item.year);
+              if (!solverYear) {
+                // Fallback if year not found (shouldn't happen)
+                return {
+                  year: item.year,
+                  ebitda: item.ebitda,
+                  depreciation: new Decimal(0),
+                  interestExpense: new Decimal(0),
+                  interestIncome: new Decimal(0),
+                  zakat: item.ebitda.times(zakatRate),
+                  netIncome: item.ebitda.minus(item.ebitda.times(zakatRate)),
+                  workingCapitalChange: new Decimal(0),
+                  operatingCashFlow: item.ebitda.minus(item.ebitda.times(zakatRate)),
+                  investingCashFlow: new Decimal(0),
+                  financingCashFlow: new Decimal(0),
+                  netCashFlow: item.ebitda.minus(item.ebitda.times(zakatRate)),
+                  capex: new Decimal(0),
+                  interest: new Decimal(0),
+                  cashFlow: item.ebitda.minus(item.ebitda.times(zakatRate)),
+                };
+              }
+
+              return {
+                year: item.year,
+                ebitda: item.ebitda,
+                depreciation: solverYear.depreciation,
+                interestExpense: solverYear.interestExpense,
+                interestIncome: solverYear.interestIncome,
+                zakat: solverYear.zakat,
+                netIncome: solverYear.netResult,
+                workingCapitalChange: solverYear.workingCapitalChange,
+                operatingCashFlow: solverYear.operatingCashFlow,
+                investingCashFlow: solverYear.investingCashFlow,
+                financingCashFlow: solverYear.financingCashFlow,
+                netCashFlow: solverYear.netCashFlow,
+                capex: solverYear.capex,
+                interest: solverYear.interestExpense, // Legacy field
+                cashFlow: solverYear.netCashFlow, // Legacy field
+              };
+            }),
+          };
+        } else {
+          // Solver failed or didn't converge - use fallback
+          console.warn('[calculateFullProjection] CircularSolver failed or did not converge, using simplified calculation');
+        }
+      } catch (err) {
+        console.error('[calculateFullProjection] CircularSolver error:', err);
+        // Continue with fallback calculation
+      }
+    }
+
+    // Fallback: Use simplified cash flow if solver not available or failed
+    if (!cashFlowResult) {
+      cashFlowResult = {
+        success: true,
+        data: ebitdaResult.data.map((item) => ({
+          year: item.year,
+          ebitda: item.ebitda,
+          depreciation: new Decimal(0),
+          interestExpense: new Decimal(0),
+          interestIncome: new Decimal(0),
+          zakat: item.ebitda.times(zakatRate),
+          netIncome: item.ebitda.minus(item.ebitda.times(zakatRate)),
+          workingCapitalChange: new Decimal(0),
+          operatingCashFlow: item.ebitda.minus(item.ebitda.times(zakatRate)),
+          investingCashFlow: new Decimal(0),
+          financingCashFlow: new Decimal(0),
+          netCashFlow: item.ebitda.minus(item.ebitda.times(zakatRate)),
+          capex: new Decimal(0),
+          interest: new Decimal(0),
+          cashFlow: item.ebitda.minus(item.ebitda.times(zakatRate)),
+        })),
+      };
     }
 
     // STEP 8 & 9: Calculate NPV for rent and cash flow (2028-2052)
@@ -427,7 +887,7 @@ export function calculateFullProjection(
     const cashFlowMap = new Map(cashFlowResult.data.map((item) => [item.year, item]));
 
     for (let year = startYear; year <= endYear; year++) {
-      const revenueItem = revenueByYear.find((r) => r.year === year);
+      const revenueItem = totalRevenueByYear.find((r) => r.year === year); // ✅ FIX 1: Use totalRevenue
       const rentItem = rentByYear.find((r) => r.year === year);
       const staffCostItem = staffCostByYear.find((s) => s.year === year);
       const opexItem = opexByYear.find((o) => o.year === year);
@@ -456,10 +916,22 @@ export function calculateFullProjection(
         ebitda: ebitdaItem.ebitda,
         ebitdaMargin: ebitdaItem.ebitdaMargin,
         capex: cashFlowItem.capex,
-        interest: cashFlowItem.interest,
-        taxes: cashFlowItem.taxes,
-        cashFlow: cashFlowItem.cashFlow,
+        interest: cashFlowItem.interest, // Legacy
+        taxes: cashFlowItem.taxes, // Legacy
+        cashFlow: cashFlowItem.cashFlow, // Legacy
         rentLoad,
+        
+        // ✅ ADD: Merge CircularSolver results (with null checks for safety)
+        depreciation: cashFlowItem?.depreciation ?? new Decimal(0),
+        interestExpense: cashFlowItem?.interestExpense ?? new Decimal(0),
+        interestIncome: cashFlowItem?.interestIncome ?? new Decimal(0),
+        zakat: cashFlowItem?.zakat ?? new Decimal(0),
+        netResult: cashFlowItem?.netIncome ?? new Decimal(0),
+        workingCapitalChange: cashFlowItem?.workingCapitalChange ?? new Decimal(0),
+        operatingCashFlow: cashFlowItem?.operatingCashFlow ?? new Decimal(0),
+        investingCashFlow: cashFlowItem?.investingCashFlow ?? new Decimal(0),
+        financingCashFlow: cashFlowItem?.financingCashFlow ?? new Decimal(0),
+        netCashFlow: cashFlowItem?.netCashFlow ?? new Decimal(0),
       };
 
       // Add optional fields if they exist
@@ -477,6 +949,23 @@ export function calculateFullProjection(
       }
 
       years.push(projection);
+    }
+
+    // Validation: Ensure CircularSolver fields were merged (if solver was used)
+    if (params.versionId && solverResult?.success && solverResult.data.converged) {
+      const missingFields = years.filter(y =>
+        y.depreciation === undefined ||
+        y.interestExpense === undefined ||
+        y.zakat === undefined ||
+        y.netResult === undefined
+      );
+
+      if (missingFields.length > 0) {
+        console.error('[calculateFullProjection] ❌ CircularSolver merge incomplete for years:',
+          missingFields.map(y => y.year));
+      } else {
+        console.log('[calculateFullProjection] ✅ CircularSolver results merged for all 30 years');
+      }
     }
 
     // Calculate summary metrics
@@ -516,6 +1005,13 @@ export function calculateFullProjection(
         avgEBITDAMargin,
         avgRentLoad,
       },
+      metadata: solverResult?.success ? {
+        converged: solverResult.data.converged,
+        iterations: solverResult.data.iterations,
+        maxError: solverResult.data.maxError,
+        duration: solverResult.data.duration,
+        solverUsed: true,
+      } : undefined,
       duration,
     });
   } catch (err) {

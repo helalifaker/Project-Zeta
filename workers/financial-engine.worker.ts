@@ -55,12 +55,12 @@ function serializeProjectionResult(data: any): any {
   return data;
 }
 
-self.onmessage = (event: MessageEvent<CalculationRequest>) => {
+self.onmessage = async (event: MessageEvent<CalculationRequest>) => {
   const startTime = performance.now();
 
   try {
     if (event.data.type === 'FULL_PROJECTION') {
-      const result = calculateFullProjection(event.data.params);
+      const result = await calculateFullProjection(event.data.params);
       const duration = performance.now() - startTime;
 
       // Log performance (target: <50ms)

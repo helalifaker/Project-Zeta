@@ -75,25 +75,27 @@ This document provides a comprehensive implementation plan for Financial Stateme
 
 ### Schema Changes Required
 
-#### 1. **NEW TABLE: `other_revenue_items`** ⚠️ **HIGH IMPACT**
+#### 1. **NEW TABLE: `OtherRevenueItem`** ⚠️ **HIGH IMPACT**
 
 **Purpose:** Store Other Revenue per year per version
 
 ```prisma
-model other_revenue_items {
+model OtherRevenueItem {
   id        String   @id @default(uuid())
   versionId String
   year      Int      // 2023-2052
   amount    Decimal  @db.Decimal(15, 2) // SAR (can be zero)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  versions  versions @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  version   Version  @relation(fields: [versionId], references: [id], onDelete: Cascade)
 
   @@unique([versionId, year])
   @@index([versionId, year])
-  @@check(year >= 2023 AND year <= 2052, name: "year_range")
-  @@check(amount >= 0, name: "amount_non_negative")
+  @@map("other_revenue_items") // Explicit table mapping to snake_case
 }
+
+// Note: @@check constraints moved to app-level validation (requires Prisma preview features)
+// Validation implemented in Zod schemas instead
 ```
 
 **Rationale:**
@@ -113,24 +115,25 @@ model other_revenue_items {
 
 ---
 
-#### 2. **NEW TABLE: `balance_sheet_settings`** ⚠️ **MEDIUM IMPACT**
+#### 2. **NEW TABLE: `BalanceSheetSetting`** ⚠️ **MEDIUM IMPACT**
 
 **Purpose:** Store starting balances for Balance Sheet calculations per version
 
 ```prisma
-model balance_sheet_settings {
+model BalanceSheetSetting {
   id           String   @id @default(uuid())
   versionId    String   @unique // One setting per version
   startingCash Decimal  @default(0) @db.Decimal(15, 2) // Year 1 starting cash (SAR)
   openingEquity Decimal @default(0) @db.Decimal(15, 2) // Year 1 opening equity (SAR)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-  versions     versions @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  version      Version  @relation(fields: [versionId], references: [id], onDelete: Cascade)
 
   @@index([versionId])
-  @@check(startingCash >= 0, name: "starting_cash_non_negative")
-  @@check(openingEquity >= 0, name: "opening_equity_non_negative")
+  @@map("balance_sheet_settings") // Explicit table mapping to snake_case
 }
+
+// Note: @@check constraints moved to app-level validation
 ```
 
 **Alternative: Add to `versions` table** (Lower Impact)
@@ -259,75 +262,86 @@ DROP TABLE IF EXISTS "balance_sheet_settings";
 
 ---
 
-#### Migration 3: Update Admin Settings - Tax Rate → Zakat Rate + Interest Rates + Balancing Settings ⚠️ **NEW**
+#### Migration 3: Staged Zakat Migration - Phase 1 (Compatibility) ⚠️ **CRITICAL - STAGED APPROACH**
 
-**Purpose:** 
-- Migrate from generic "Tax Rate" to Saudi Arabian "Zakat Rate" (2.5%)
-- Add Interest Rates (Debt Rate, Bank Deposit Rate) for automatic interest calculations
-- Add Minimum Cash Balance for balance sheet balancing mechanism
-- Add Working Capital Settings for AR, AP, deferred income, accrued expenses
+**Purpose:** Safe migration from taxRate to zakatRate with backward compatibility
 
+**Phase 1: Compatibility Release (Pre-Financial Statements)**
 ```sql
--- Migration: update_admin_settings_financial_statements
+-- Migration: add_zakat_compatibility
 BEGIN;
 
--- 1. Rename taxRate to zakatRate in admin_settings table
-UPDATE admin_settings 
-SET key = 'zakatRate',
-    value = '0.025'::jsonb,
-    updated_at = NOW()
-WHERE key = 'taxRate';
-
--- 2. If zakatRate doesn't exist (taxRate was missing), create it with default
-INSERT INTO admin_settings (id, key, value, updated_at)
-SELECT
-  gen_random_uuid(),
-  'zakatRate',
-  '0.025'::jsonb,
-  NOW()
-WHERE NOT EXISTS (SELECT 1 FROM admin_settings WHERE key = 'zakatRate');
-
--- 3. Add Interest Rates for automatic calculations
-INSERT INTO admin_settings (id, key, value, updated_at)
-VALUES 
-  (gen_random_uuid(), 'debt_interest_rate', '0.05'::jsonb, NOW()),  -- 5% default
-  (gen_random_uuid(), 'bank_deposit_interest_rate', '0.02'::jsonb, NOW()) -- 2% default
-ON CONFLICT (key) DO UPDATE 
-SET value = EXCLUDED.value,
-    updated_at = NOW();
-
--- 4. Add Minimum Cash Balance for balance sheet balancing mechanism
-INSERT INTO admin_settings (id, key, value, updated_at)
-VALUES (gen_random_uuid(), 'minimum_cash_balance', '1000000'::jsonb, NOW()) -- 1M SAR default
-ON CONFLICT (key) DO UPDATE 
-SET value = EXCLUDED.value,
-    updated_at = NOW();
-
--- 5. Add Working Capital Settings
+-- 1. Add zakatRate setting (keep taxRate for compatibility)
 INSERT INTO admin_settings (id, key, value, updated_at)
 VALUES (
   gen_random_uuid(),
-  'working_capital_settings',
-  '{
-    "accountsReceivable": {"collectionDays": 0},
-    "accountsPayable": {"paymentDays": 30},
-    "deferredIncome": {"deferralFactor": 0.25},
-    "accruedExpenses": {"accrualDays": 15}
-  }'::jsonb,
+  'zakatRate',
+  '0.025'::jsonb,  -- 2.5% Saudi Zakat rate
   NOW()
 )
-ON CONFLICT (key) DO UPDATE 
+ON CONFLICT (key) DO UPDATE SET
+  value = '0.025'::jsonb,
+  updated_at = NOW();
+
+-- 2. Ensure taxRate exists with correct value (for rollback compatibility)
+INSERT INTO admin_settings (id, key, value, updated_at)
+VALUES (
+  gen_random_uuid(),
+  'taxRate',
+  '0.025'::jsonb,  -- Same value as zakatRate
+  NOW()
+)
+ON CONFLICT (key) DO UPDATE SET
+  value = '0.025'::jsonb,
+  updated_at = NOW();
+
+COMMIT;
+```
+
+**Phase 2: Migration Release (Simultaneous with Financial Statements)**
+```sql
+-- Migration: migrate_tax_to_zakat
+BEGIN;
+
+-- 1. Copy taxRate value to zakatRate (if not already done)
+UPDATE admin_settings
+SET value = (SELECT value FROM admin_settings WHERE key = 'taxRate' LIMIT 1)
+WHERE key = 'zakatRate' AND value IS NULL;
+
+-- 2. Add new financial settings (can be deployed simultaneously)
+INSERT INTO admin_settings (id, key, value, updated_at)
+VALUES
+  (gen_random_uuid(), 'debt_interest_rate', '0.05'::jsonb, NOW()),  -- 5% default
+  (gen_random_uuid(), 'bank_deposit_interest_rate', '0.02'::jsonb, NOW()), -- 2% default
+  (gen_random_uuid(), 'minimum_cash_balance', '1000000'::jsonb, NOW()), -- 1M SAR default
+  (
+    gen_random_uuid(),
+    'working_capital_settings',
+    '{
+      "accountsReceivable": {"collectionDays": 0},
+      "accountsPayable": {"paymentDays": 30},
+      "deferredIncome": {"deferralFactor": 0.25},
+      "accruedExpenses": {"accrualDays": 15}
+    }'::jsonb,
+    NOW()
+  )
+ON CONFLICT (key) DO UPDATE
 SET value = EXCLUDED.value,
     updated_at = NOW();
 
--- 6. Verify the changes
-SELECT key, value 
-FROM admin_settings 
-WHERE key IN ('taxRate', 'zakatRate', 'debt_interest_rate', 'bank_deposit_interest_rate', 
-              'minimum_cash_balance', 'working_capital_settings');
+COMMIT;
+```
 
--- Expected: zakatRate, debt_interest_rate, bank_deposit_interest_rate, 
---           minimum_cash_balance, working_capital_settings
+**Phase 3: Cleanup Release (Post-Validation)**
+```sql
+-- Migration: cleanup_tax_rate
+BEGIN;
+
+-- 1. Remove deprecated taxRate (after confirming all code uses zakatRate)
+DELETE FROM admin_settings WHERE key = 'taxRate';
+
+-- 2. Verify only zakatRate remains
+SELECT key, value FROM admin_settings WHERE key IN ('taxRate', 'zakatRate');
 
 COMMIT;
 ```
@@ -1171,9 +1185,12 @@ User Views Version → Fetch from DB (including Other Revenue & Settings)
 
 **Day -2: Working Capital Integration**
 - [ ] Add working capital to POC (AR, AP, deferred income)
+- [ ] **NEW: Implement convergence algorithm with edge case handling**
+- [ ] **NEW: Write convergence algorithm tests (5+ scenarios)**
 - [ ] Test convergence with working capital
 - [ ] Identify if working capital creates additional circular dependencies
 - [ ] Write POC tests with working capital (5+ scenarios)
+- [ ] Document convergence results in POC report
 
 **Day -1: Edge Case Testing & Documentation**
 - [ ] Test 20+ edge cases (extreme debt, oscillating cash flow, etc.)
@@ -1198,9 +1215,211 @@ User Views Version → Fetch from DB (including Other Revenue & Settings)
 - ⚠️ **CAUTION:** Some scenarios require >8 iterations or >100ms (optimize before Phase 1)
 - ❌ **NO-GO:** >10% of scenarios don't converge or performance >200ms (redesign approach)
 
+**Convergence Algorithm Specification:**
+```typescript
+/**
+ * Convergence Check Algorithm
+ *
+ * Uses hybrid approach:
+ * - Absolute error for values near zero (avoid division by zero)
+ * - Relative error for larger values (percentage-based)
+ *
+ * Threshold: 0.0001 (0.01%)
+ */
+
+interface ConvergenceCheckResult {
+  converged: boolean;
+  maxError: Decimal;
+  errorType: 'absolute' | 'relative';
+  yearWithMaxError: number;
+}
+
+export class CircularSolverPOC {
+  private readonly ABSOLUTE_ERROR_THRESHOLD = new Decimal(0.01); // Use absolute error for values < 0.01
+  private readonly CONVERGENCE_THRESHOLD = new Decimal(0.0001); // 0.01%
+
+  /**
+   * Check convergence between two projection iterations
+   *
+   * Strategy:
+   * - For Net Result near zero (|Net Result| < 0.01): Use absolute error
+   * - For larger Net Result: Use relative error (percentage change)
+   *
+   * This avoids division-by-zero issues while maintaining accuracy
+   */
+  private checkConvergence(
+    previousIteration: ProjectionResult,
+    currentIteration: ProjectionResult
+  ): ConvergenceCheckResult {
+    let maxError = new Decimal(0);
+    let errorType: 'absolute' | 'relative' = 'relative';
+    let yearWithMaxError = 0;
+
+    // Compare Net Result for each year
+    for (let i = 0; i < currentIteration.years.length; i++) {
+      const prevYear = previousIteration.years[i];
+      const currYear = currentIteration.years[i];
+
+      const prevNetResult = prevYear.netResult;
+      const currNetResult = currYear.netResult;
+
+      const absDiff = currNetResult.minus(prevNetResult).abs();
+
+      // Decision: Use absolute or relative error?
+      if (prevNetResult.abs().lt(this.ABSOLUTE_ERROR_THRESHOLD)) {
+        // Near zero: Use absolute error to avoid division by zero
+        const error = absDiff;
+
+        if (error.gt(maxError)) {
+          maxError = error;
+          errorType = 'absolute';
+          yearWithMaxError = currYear.year;
+        }
+      } else {
+        // Larger values: Use relative error (percentage change)
+        const relError = absDiff.div(prevNetResult.abs());
+
+        if (relError.gt(maxError)) {
+          maxError = relError;
+          errorType = 'relative';
+          yearWithMaxError = currYear.year;
+        }
+      }
+    }
+
+    // Converged if max error < threshold
+    const converged = maxError.lte(this.CONVERGENCE_THRESHOLD);
+
+    return {
+      converged,
+      maxError,
+      errorType,
+      yearWithMaxError,
+    };
+  }
+
+  /**
+   * Run iterative solver with convergence checking
+   */
+  public async solve(params: SolverParams): Promise<SolverResult> {
+    let currentIteration = this.initializeFirstIteration(params);
+    let previousIteration: ProjectionResult | null = null;
+
+    for (let iteration = 0; iteration < this.MAX_ITERATIONS; iteration++) {
+      // Calculate projection with current estimates
+      currentIteration = await this.calculateIteration(params, currentIteration);
+
+      // Check convergence (skip first iteration - no baseline yet)
+      if (iteration > 0 && previousIteration) {
+        const convergenceCheck = this.checkConvergence(
+          previousIteration,
+          currentIteration
+        );
+
+        // Log convergence progress
+        console.log(`Iteration ${iteration}: ${convergenceCheck.converged ? '✅' : '⏳'} ` +
+                    `Max error: ${(convergenceCheck.maxError.toNumber() * 100).toFixed(4)}% ` +
+                    `(${convergenceCheck.errorType}, Year ${convergenceCheck.yearWithMaxError})`);
+
+        if (convergenceCheck.converged) {
+          return {
+            success: true,
+            converged: true,
+            iterations: iteration,
+            maxError: convergenceCheck.maxError,
+            result: currentIteration,
+          };
+        }
+      }
+
+      // Store for next convergence check
+      previousIteration = currentIteration;
+    }
+
+    // Did not converge - use fallback
+    console.warn('⚠️ Convergence failed after max iterations. Using fallback.');
+
+    return {
+      success: true,
+      converged: false,
+      iterations: this.MAX_ITERATIONS,
+      maxError: new Decimal(1), // 100% error (did not converge)
+      result: currentIteration, // Use best estimate
+      usedFallback: true,
+    };
+  }
+}
+```
+
+**POC Test Cases (Day -2):**
+```typescript
+describe('Convergence Algorithm - Edge Cases', () => {
+  test('ST-CONV-001: Division by zero protection (Net Result = 0)', () => {
+    const prev = { years: [{ year: 2023, netResult: new Decimal(0) }] };
+    const curr = { years: [{ year: 2023, netResult: new Decimal(0.005) }] };
+
+    const result = checkConvergence(prev, curr);
+
+    // Should use absolute error (not division)
+    expect(result.errorType).toBe('absolute');
+    expect(result.converged).toBe(true); // 0.005 < 0.01 threshold
+  });
+
+  test('ST-CONV-002: Near-zero values use absolute error', () => {
+    const prev = { years: [{ year: 2023, netResult: new Decimal(0.008) }] };
+    const curr = { years: [{ year: 2023, netResult: new Decimal(0.009) }] };
+
+    const result = checkConvergence(prev, curr);
+
+    expect(result.errorType).toBe('absolute');
+    expect(result.maxError.toNumber()).toBeCloseTo(0.001, 5);
+  });
+
+  test('ST-CONV-003: Large values use relative error', () => {
+    const prev = { years: [{ year: 2023, netResult: new Decimal(1000000) }] };
+    const curr = { years: [{ year: 2023, netResult: new Decimal(1000100) }] };
+
+    const result = checkConvergence(prev, curr);
+
+    expect(result.errorType).toBe('relative');
+    expect(result.maxError.toNumber()).toBeCloseTo(0.0001, 5); // 0.01%
+  });
+
+  test('ST-CONV-004: Negative values handled correctly', () => {
+    const prev = { years: [{ year: 2023, netResult: new Decimal(-1000) }] };
+    const curr = { years: [{ year: 2023, netResult: new Decimal(-1001) }] };
+
+    const result = checkConvergence(prev, curr);
+
+    // Should use absolute value for error calculation
+    expect(result.maxError.toNumber()).toBeCloseTo(0.001, 5); // 0.1%
+  });
+
+  test('ST-CONV-005: Convergence with mixed positive/negative values', () => {
+    const prev = { years: [
+      { year: 2023, netResult: new Decimal(1000) },
+      { year: 2024, netResult: new Decimal(-500) },
+      { year: 2025, netResult: new Decimal(0.005) },
+    ]};
+
+    const curr = { years: [
+      { year: 2023, netResult: new Decimal(1000.1) },
+      { year: 2024, netResult: new Decimal(-500.05) },
+      { year: 2025, netResult: new Decimal(0.0051) },
+    ]};
+
+    const result = checkConvergence(prev, curr);
+
+    // All errors should be below threshold
+    expect(result.converged).toBe(true);
+  });
+});
+```
+
 **Files Created:**
 - `lib/calculations/financial/__poc__/circular-solver-poc.ts` - NEW
 - `lib/calculations/financial/__poc__/__tests__/circular-solver-poc.test.ts` - NEW (25+ test scenarios)
+- `lib/calculations/financial/__poc__/__tests__/convergence-algorithm.test.ts` - NEW (5+ convergence edge cases)
 
 ---
 
@@ -1210,11 +1429,170 @@ User Views Version → Fetch from DB (including Other Revenue & Settings)
 - [ ] Create migration for `other_revenue_items` table
 - [ ] Create migration for `balance_sheet_settings` table
 - [ ] **Create migration for `admin_settings` update: `taxRate` → `zakatRate` (default: 0.025)** ⚠️ **CRITICAL**
+- [ ] **NEW: Create `lib/utils/admin-settings.ts` with backward compatibility helpers**
+- [ ] **NEW: Write unit tests for admin settings helpers**
 - [ ] Test migrations on clean database
 - [ ] Test migrations on database with existing data
 - [ ] Run migrations on staging
 - [ ] Update Prisma schema file (admin_settings model remains unchanged - key-value table)
 - [ ] Run `npx prisma generate`
+
+**Zakat Rate Helper Function Specification:**
+```typescript
+/**
+ * Admin Settings Utilities
+ *
+ * Provides backward-compatible helpers for reading admin settings
+ * during the taxRate → zakatRate migration period
+ */
+
+import Decimal from 'decimal.js';
+import { toDecimal } from '@/lib/calculations/decimal-helpers';
+
+export interface AdminSettings {
+  cpiRate?: Decimal | number | string;
+  discountRate?: Decimal | number | string;
+  zakatRate?: Decimal | number | string; // ✅ New (preferred)
+  taxRate?: Decimal | number | string; // @deprecated - Keep for migration period
+  debtInterestRate?: Decimal | number | string;
+  bankDepositInterestRate?: Decimal | number | string;
+  minimumCashBalance?: Decimal | number | string;
+  workingCapitalSettings?: {
+    accountsReceivable: { collectionDays: number };
+    accountsPayable: { paymentDays: number };
+    deferredIncome: { deferralFactor: number };
+    accruedExpenses: { accrualDays: number };
+  };
+}
+
+/**
+ * Get Zakat rate with backward compatibility
+ *
+ * Migration Strategy:
+ * 1. Prefer zakatRate (new field)
+ * 2. Fall back to taxRate (deprecated, migration period)
+ * 3. Default to 2.5% (Saudi Arabian Zakat law)
+ *
+ * @param adminSettings - Admin settings object
+ * @returns Zakat rate as Decimal
+ */
+export function getZakatRate(adminSettings: AdminSettings): Decimal {
+  // Priority 1: Use zakatRate (new field)
+  if (adminSettings.zakatRate !== undefined && adminSettings.zakatRate !== null) {
+    return toDecimal(adminSettings.zakatRate);
+  }
+
+  // Priority 2: Fall back to taxRate (deprecated, for migration period)
+  if (adminSettings.taxRate !== undefined && adminSettings.taxRate !== null) {
+    console.warn(
+      '[DEPRECATED] Using taxRate for Zakat calculation. ' +
+      'Please update admin settings to use zakatRate instead. ' +
+      'taxRate will be removed in a future release.'
+    );
+    return toDecimal(adminSettings.taxRate);
+  }
+
+  // Priority 3: Default to Saudi Arabian Zakat rate (2.5%)
+  return new Decimal(0.025);
+}
+
+/**
+ * Get debt interest rate with default fallback
+ */
+export function getDebtInterestRate(adminSettings: AdminSettings): Decimal {
+  return adminSettings.debtInterestRate !== undefined
+    ? toDecimal(adminSettings.debtInterestRate)
+    : new Decimal(0.05); // Default: 5%
+}
+
+/**
+ * Get bank deposit interest rate with default fallback
+ */
+export function getBankDepositInterestRate(adminSettings: AdminSettings): Decimal {
+  return adminSettings.bankDepositInterestRate !== undefined
+    ? toDecimal(adminSettings.bankDepositInterestRate)
+    : new Decimal(0.02); // Default: 2%
+}
+
+/**
+ * Get minimum cash balance with default fallback
+ */
+export function getMinimumCashBalance(adminSettings: AdminSettings): Decimal {
+  return adminSettings.minimumCashBalance !== undefined
+    ? toDecimal(adminSettings.minimumCashBalance)
+    : new Decimal(1_000_000); // Default: 1M SAR
+}
+
+/**
+ * Get working capital settings with default fallbacks
+ */
+export function getWorkingCapitalSettings(adminSettings: AdminSettings) {
+  return {
+    accountsReceivable: {
+      collectionDays: adminSettings.workingCapitalSettings?.accountsReceivable?.collectionDays ?? 0,
+    },
+    accountsPayable: {
+      paymentDays: adminSettings.workingCapitalSettings?.accountsPayable?.paymentDays ?? 30,
+    },
+    deferredIncome: {
+      deferralFactor: adminSettings.workingCapitalSettings?.deferredIncome?.deferralFactor ?? 0.25,
+    },
+    accruedExpenses: {
+      accrualDays: adminSettings.workingCapitalSettings?.accruedExpenses?.accrualDays ?? 15,
+    },
+  };
+}
+```
+
+**Unit Tests:**
+```typescript
+describe('Admin Settings Helpers - Backward Compatibility', () => {
+  test('getZakatRate: Prefers zakatRate over taxRate', () => {
+    const settings = {
+      zakatRate: 0.03,
+      taxRate: 0.15, // Should be ignored
+    };
+
+    const rate = getZakatRate(settings);
+
+    expect(rate.toNumber()).toBe(0.03);
+  });
+
+  test('getZakatRate: Falls back to taxRate if zakatRate missing', () => {
+    const settings = {
+      taxRate: 0.15,
+    };
+
+    const rate = getZakatRate(settings);
+
+    expect(rate.toNumber()).toBe(0.15);
+    // Should log deprecation warning
+  });
+
+  test('getZakatRate: Defaults to 2.5% if both missing', () => {
+    const settings = {};
+
+    const rate = getZakatRate(settings);
+
+    expect(rate.toNumber()).toBe(0.025);
+  });
+
+  test('All helper functions return correct defaults', () => {
+    const settings = {};
+
+    expect(getZakatRate(settings).toNumber()).toBe(0.025);
+    expect(getDebtInterestRate(settings).toNumber()).toBe(0.05);
+    expect(getBankDepositInterestRate(settings).toNumber()).toBe(0.02);
+    expect(getMinimumCashBalance(settings).toNumber()).toBe(1_000_000);
+
+    const wcSettings = getWorkingCapitalSettings(settings);
+    expect(wcSettings.accountsReceivable.collectionDays).toBe(0);
+    expect(wcSettings.accountsPayable.paymentDays).toBe(30);
+    expect(wcSettings.deferredIncome.deferralFactor).toBe(0.25);
+    expect(wcSettings.accruedExpenses.accrualDays).toBe(15);
+  });
+});
+```
 
 **Day 2: Other Revenue Backend**
 - [ ] Create `services/other-revenue/read.ts`
@@ -1620,7 +1998,30 @@ const result = calculateFullProjection({
 
 **Purpose:** Test extreme scenarios, edge cases, and boundary conditions to ensure robustness before production deployment.
 
-**Test Categories (50+ scenarios):**
+**Test Categories & Priorities (50+ scenarios):**
+
+**P0 - Must Pass (Block Deployment): 15 tests**
+- Core calculation correctness (PnL, Balance Sheet, Cash Flow)
+- Data integrity and validation
+- Convergence reliability (circular solver)
+- Authentication and authorization
+→ **Must pass 100%** - Deployment blocked if any P0 test fails
+
+**P1 - Should Pass (Document Workaround): 20 tests**
+- Edge cases with known limitations
+- Performance edge cases
+- UI responsiveness scenarios
+- Integration scenarios
+→ **Target 90%+ pass**, acceptable 80%+ with documented workarounds
+
+**P2 - Nice to Pass (Known Edge Cases): 15 tests**
+- Extreme scenarios (trillions, fractional SAR)
+- Unrealistic parameter combinations
+- Future enhancement areas
+- Browser compatibility
+→ **P2 failures acceptable if documented as known limitations**
+
+**Detailed Test Categories:**
 
 1. **Extreme Cash Flow Scenarios (5 tests):**
    - ST-001: 10 consecutive years of losses
@@ -2140,16 +2541,13 @@ WHERE key = 'zakatRate';
 |   - Day -2: Working capital integration POC | | | |
 |   - Day -1: Edge case testing, GO/NO-GO decision | | | |
 | Phase 1: Database & Backend Foundation | 2-3 days | Day 1-3 | ⏳ Pending |
-| Phase 2: Calculation Engine Updates | 6-8 days | Day 4-10 | ⏳ Pending |
-|   - Day 4-5: Revenue + Other Revenue | | | |
-|   - Day 5A: Balance Sheet (Part 1 - Working Capital) | | | |
-|   - Day 5B: Balance Sheet (Part 2 - Balancing & Interest) | | | |
-|   - Day 5C: Iterative Solver + Debug Infrastructure | | | |
-|   - Day 7: Balance Sheet Balancing Mechanism | | | |
-|   - Day 8: Integration & Cash Flow Breakdown | | | |
-|   - Day 9: Net Result Formula Fix + Stress Testing | | | |
-|   - Day 10: Performance Optimization (if needed) | | | |
-| Phase 3: UI Components | 4-5 days | Day 11-15 | ⏳ Pending |
+| Phase 2: Calculation Engine Updates | 6-8 days | Day 4-11 | ⏳ Pending |
+|   - Day 4: Balance Sheet Foundation | | | |
+|   - Day 5: Working Capital & Interest | | | |
+|   - Day 6-7: Circular Solver Implementation | | | |
+|   - Day 8-9: Debug Infrastructure | | | |
+|   - Day 10-11: Integration Testing | | | |
+| Phase 3: UI Components | 4-5 days | Day 12-16 | ⏳ Pending |
 |   - Day 11: Other Revenue Input Component | | | |
 |   - Day 12: PnL Statement + Convergence Monitor | | | |
 |   - Day 13: Balance Sheet Component | | | |
@@ -2725,6 +3123,62 @@ Key Improvement: POC + Debug + Stress Tests reduce severe bug risk by 25%
 
 ---
 
+## 📋 FINAL UPDATED IMPLEMENTATION CHECKLIST
+
+### Phase 0: POC (Days -3 to -1)
+
+**Day -2: Working Capital Integration**
+- [ ] Add working capital to POC (AR, AP, deferred income)
+- [ ] **NEW: Implement convergence algorithm with edge case handling**
+- [ ] **NEW: Write convergence algorithm tests (5+ scenarios)**
+- [ ] Test convergence with working capital
+- [ ] Identify if working capital creates additional circular dependencies
+- [ ] Write POC tests with working capital (5+ scenarios)
+- [ ] Document convergence results in POC report
+
+### Phase 1: Database & Backend (Days 1-3)
+
+**Day 1: Database Migration**
+- [ ] Create migration for `other_revenue_items` table
+- [ ] Create migration for `balance_sheet_settings` table
+- [ ] Create migration for `admin_settings` update: `taxRate` → `zakatRate` (default: 0.025) ⚠️ **CRITICAL**
+- [ ] **NEW: Create `lib/utils/admin-settings.ts` with backward compatibility helpers**
+- [ ] **NEW: Write unit tests for admin settings helpers**
+- [ ] Test migrations on clean database
+- [ ] Test migrations on database with existing data
+- [ ] Run migrations on staging
+- [ ] Update Prisma schema file (admin_settings model remains unchanged - key-value table)
+- [ ] Run npx prisma generate
+
+**Day 8: Integration & Cash Flow Breakdown** ⚠️ **UPDATED - PHASE 2**
+- [ ] Update Zakat Rate migration (CRITICAL - must happen before calculations)
+- [ ] **NEW: Update all calculation modules to use admin settings helpers**
+- [ ] Fix Net Result formula (CRITICAL)
+- [ ] Integrate iterative solver into calculateFullProjection()
+- [ ] Integrate Balance Sheet (with balancing mechanism)
+- [ ] Integrate Working Capital calculations
+- [ ] Update cashflow.ts to return breakdown
+- [ ] **NEW: Run integration tests to verify backward compatibility**
+- [ ] Write integration tests for full projection
+
+### Action Items Summary
+
+**Day -2 (POC):** Implement convergence algorithm with edge case handling + tests
+
+**Day 1 (Phase 1):** Create admin settings helpers with backward compatibility + unit tests
+
+**Day 8 (Phase 2):** Update all calculation modules to use helpers + integration tests
+
+**Estimated Time:** 6-8 hours (already budgeted)
+
+**Completion Criteria:**
+- ✅ Convergence algorithm handles all edge cases (zero values, negative values, mixed signs)
+- ✅ Admin settings helpers provide backward compatibility during migration
+- ✅ All calculation modules updated to use helpers
+- ✅ Integration tests verify backward compatibility works
+
+---
+
 **Document Status:** ✅ **COMPLETE - Ready for Team Review**  
 **Next Action:** Team review → Approval → Begin Phase 0 (POC)  
 **Last Updated:** November 18, 2025  
@@ -2735,4 +3189,5 @@ Key Improvement: POC + Debug + Stress Tests reduce severe bug risk by 25%
 - Extended timeline (11-14 days → 17-22 days)
 - Added Post-Launch Bug Budget
 - Added minor enhancements (POC test scenarios, performance breakdown, stress test prioritization, convergence threshold levels)
+- **FINAL ADJUSTMENTS:** Added convergence algorithm specification + Zakat helper functions
 

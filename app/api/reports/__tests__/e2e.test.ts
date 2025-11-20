@@ -127,7 +127,11 @@ describe('End-to-End Report Flow', () => {
   const mockAdminSettings = {
     cpiRate: 0.03,
     discountRate: 0.08,
-    taxRate: 0.20,
+    zakatRate: 0.025, // ✅ Saudi Arabian Zakat rate (2.5%)
+    currency: 'SAR',
+    timezone: 'Asia/Riyadh',
+    dateFormat: 'DD/MM/YYYY',
+    numberFormat: '1,000,000',
   };
 
   const mockProjection = {

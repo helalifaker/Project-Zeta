@@ -89,6 +89,17 @@ export function calculateEBITDAForYear(
       safeSubtract(safeSubtract(revenueDecimal, staffCostDecimal), rentDecimal),
       opexDecimal
     );
+    
+    // 🐛 DEBUG: Log calculation details for investigation
+    if (revenueDecimal.greaterThan(0)) {
+      console.log('[EBITDA DEBUG]', {
+        revenue: revenueDecimal.toNumber(),
+        staffCost: staffCostDecimal.toNumber(),
+        rent: rentDecimal.toNumber(),
+        opex: opexDecimal.toNumber(),
+        ebitda: ebitda.toNumber(),
+      });
+    }
 
     // Calculate EBITDA Margin: (EBITDA / Revenue) × 100
     // If revenue is zero, margin is undefined (return 0 or error)

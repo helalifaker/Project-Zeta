@@ -17,13 +17,16 @@ import type { TuitionGrowthResult } from './tuition-growth';
 export interface RevenueParams {
   tuitionByYear: TuitionGrowthResult[];
   studentsByYear: Array<{ year: number; students: number }>;
+  otherRevenueByYear?: Array<{ year: number; amount: Decimal | number | string }>;
 }
 
 export interface RevenueResult {
   year: number;
   tuition: Decimal;
   students: number;
-  revenue: Decimal;
+  revenue: Decimal; // Curriculum revenue (tuition × students)
+  otherRevenue: Decimal; // Additional revenue sources
+  totalRevenue: Decimal; // revenue + otherRevenue
 }
 
 /**
@@ -89,6 +92,18 @@ export function calculateRevenue(
       studentsMap.set(item.year, item.students);
     }
 
+    // Create a map of other revenue by year for quick lookup
+    const otherRevenueMap = new Map<number, Decimal>();
+    if (params.otherRevenueByYear) {
+      for (const item of params.otherRevenueByYear) {
+        const amount = toDecimal(item.amount);
+        if (amount.isNegative()) {
+          return error(`Other revenue for year ${item.year} cannot be negative`);
+        }
+        otherRevenueMap.set(item.year, amount);
+      }
+    }
+
     for (const tuitionItem of tuitionByYear) {
       const students = studentsMap.get(tuitionItem.year);
 
@@ -101,14 +116,22 @@ export function calculateRevenue(
         return error(`Students for year ${tuitionItem.year} cannot be negative`);
       }
 
-      // Calculate revenue: tuition × students
+      // Calculate curriculum revenue: tuition × students
       const revenue = safeMultiply(tuitionItem.tuition, students);
+
+      // Get other revenue for this year (default to zero if not provided)
+      const otherRevenue = otherRevenueMap.get(tuitionItem.year) || new Decimal(0);
+
+      // Calculate total revenue: curriculum revenue + other revenue
+      const totalRevenue = revenue.plus(otherRevenue);
 
       results.push({
         year: tuitionItem.year,
         tuition: tuitionItem.tuition,
         students,
-        revenue,
+        revenue, // Curriculum revenue only
+        otherRevenue, // Additional revenue sources
+        totalRevenue, // Total revenue (curriculum + other)
       });
     }
 
@@ -131,8 +154,9 @@ export function calculateTotalRevenue(
   }
 
   try {
+    // Use totalRevenue if available, otherwise fall back to revenue
     const total = result.data.reduce(
-      (sum, item) => sum.plus(item.revenue),
+      (sum, item) => sum.plus(item.totalRevenue || item.revenue),
       new Decimal(0)
     );
 
@@ -159,8 +183,9 @@ export function calculateAverageRevenue(
       return error('No revenue data available');
     }
 
+    // Use totalRevenue if available, otherwise fall back to revenue
     const total = result.data.reduce(
-      (sum, item) => sum.plus(item.revenue),
+      (sum, item) => sum.plus(item.totalRevenue || item.revenue),
       new Decimal(0)
     );
 

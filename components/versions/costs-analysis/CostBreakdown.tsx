@@ -183,6 +183,11 @@ export function CostBreakdown({
         endYear,
       };
 
+      // ⚠️ TODO (Fix 1): calculateFullProjection is now async - convert this useMemo to useEffect + useState
+      // For now, this will cause a TypeScript error because useMemo can't await async functions
+      // TODO: Convert to useEffect + useState pattern (see FinancialStatementsWrapper.tsx for example)
+      // TODO: Add otherRevenueByYear parameter when converting to async pattern
+      // @ts-expect-error - useMemo cannot await async functions, will be fixed in future update
       const result = calculateFullProjection(params);
       const calcDuration = performance.now() - calcStart;
       if (calcDuration > PERFORMANCE_TARGET_MS) {

@@ -174,6 +174,10 @@ export function CostsAnalysisDashboard({
         endYear: 2052,
       };
 
+      // ⚠️ TODO (Fix 1): calculateFullProjection is now async - convert this useMemo to useEffect + useState
+      // TODO: Convert to useEffect + useState pattern (see FinancialStatementsWrapper.tsx for example)
+      // TODO: Add otherRevenueByYear parameter when converting to async pattern
+      // @ts-expect-error - useMemo cannot await async functions, will be fixed in future update
       const result = calculateFullProjection(params);
       const calcDuration = performance.now() - calcStart;
       

@@ -16,7 +16,8 @@ import type { UpdateAdminSettingsInput } from '@/lib/validation/admin';
 export type AdminSettingKey = 
   | 'cpiRate'
   | 'discountRate'
-  | 'taxRate'
+  | 'zakatRate' // ✅ New (preferred)
+  | 'taxRate' // @deprecated - Keep for backward compatibility
   | 'currency'
   | 'timezone'
   | 'dateFormat'
@@ -28,7 +29,7 @@ export type AdminSettingKey =
 export interface AdminSettings {
   cpiRate: number;
   discountRate: number;
-  taxRate: number;
+  zakatRate: number; // ✅ Saudi Arabian Zakat rate (default 2.5%)
   currency: string;
   timezone: string;
   dateFormat: string;
@@ -44,7 +45,7 @@ export async function getAdminSettings(): Promise<Result<AdminSettings>> {
     const settings = await prisma.admin_settings.findMany({
       where: {
         key: {
-          in: ['cpiRate', 'discountRate', 'taxRate', 'currency', 'timezone', 'dateFormat', 'numberFormat'],
+          in: ['cpiRate', 'discountRate', 'zakatRate', 'taxRate', 'currency', 'timezone', 'dateFormat', 'numberFormat'],
         },
       },
     });
@@ -64,13 +65,13 @@ export async function getAdminSettings(): Promise<Result<AdminSettings>> {
       
       // Parse JSON value
       if (typeof value === 'object' && value !== null) {
-        if (key === 'cpiRate' || key === 'discountRate' || key === 'taxRate') {
+        if (key === 'cpiRate' || key === 'discountRate' || key === 'zakatRate' || key === 'taxRate') {
           (settingsMap as Record<string, number>)[key] = typeof value === 'number' ? value : parseFloat(String(value));
         } else {
           (settingsMap as Record<string, string>)[key] = String(value);
         }
       } else if (typeof value === 'number') {
-        if (key === 'cpiRate' || key === 'discountRate' || key === 'taxRate') {
+        if (key === 'cpiRate' || key === 'discountRate' || key === 'zakatRate' || key === 'taxRate') {
           (settingsMap as Record<string, number>)[key] = value;
         }
       } else {
@@ -79,10 +80,16 @@ export async function getAdminSettings(): Promise<Result<AdminSettings>> {
     }
 
     // Set defaults if missing
+    // ✅ Backward compatibility: zakatRate (preferred) → taxRate (fallback) → 0.025 (default)
+    const zakatRate = 
+      (settingsMap.zakatRate as number) ?? 
+      (settingsMap.taxRate as number) ?? 
+      0.025; // 2.5% Saudi Arabian Zakat rate
+
     const result: AdminSettings = {
       cpiRate: (settingsMap.cpiRate as number) ?? 0.03,
       discountRate: (settingsMap.discountRate as number) ?? 0.08,
-      taxRate: (settingsMap.taxRate as number) ?? 0.15,
+      zakatRate,
       currency: settingsMap.currency ?? 'SAR',
       timezone: settingsMap.timezone ?? 'Asia/Riyadh',
       dateFormat: settingsMap.dateFormat ?? 'DD/MM/YYYY',

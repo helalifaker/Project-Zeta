@@ -120,7 +120,7 @@ export async function POST(
     const adminSettings = {
       cpiRate: toDecimal(adminSettingsResult.data.cpiRate),
       discountRate: toDecimal(adminSettingsResult.data.discountRate),
-      taxRate: toDecimal(adminSettingsResult.data.taxRate),
+      zakatRate: toDecimal(adminSettingsResult.data.zakatRate ?? 0.025), // ✅ Saudi Arabian Zakat rate (2.5%)
     };
 
     // Calculate staff cost base from curriculum plans

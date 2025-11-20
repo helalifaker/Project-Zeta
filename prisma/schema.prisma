@@ -176,33 +176,139 @@ model users {
 }
 
 model versions {
-  id                  String                @id @default(uuid())
-  name                String
-  description         String?
-  mode                VersionMode
-  status              VersionStatus         @default(DRAFT)
-  createdBy           String
-  basedOnId           String?
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
-  lockedAt            DateTime?
-  lockedBy            String?
-  lockReason          String?
-  capex_items         capex_items[]
-  capex_rules         capex_rules[]
-  curriculum_plans    curriculum_plans[]
-  opex_sub_accounts   opex_sub_accounts[]
-  rent_plans          rent_plans?
-  reports             reports[]
-  tuition_simulations tuition_simulations[]
-  versions            versions?             @relation("versionsToversions", fields: [basedOnId], references: [id])
-  other_versions      versions[]            @relation("versionsToversions")
-  users               users                 @relation(fields: [createdBy], references: [id])
+  id                      String                   @id @default(uuid())
+  name                    String
+  description             String?
+  mode                    VersionMode
+  status                  VersionStatus            @default(DRAFT)
+  createdBy               String
+  basedOnId               String?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  lockedAt                DateTime?
+  lockedBy                String?
+  lockReason              String?
+  transitionCapacity      Int?                     @default(1850)
+  capex_items             capex_items[]
+  capex_rules             capex_rules[]
+  curriculum_plans        curriculum_plans[]
+  opex_sub_accounts       opex_sub_accounts[]
+  rent_plans              rent_plans?
+  reports                 reports[]
+  tuition_simulations     tuition_simulations[]
+  other_revenue_items     other_revenue_items[]
+  balance_sheet_settings  balance_sheet_settings?
+  historical_actuals      historical_actuals[]
+  versions                versions?                @relation("versionsToversions", fields: [basedOnId], references: [id])
+  other_versions          versions[]               @relation("versionsToversions")
+  users                   users                    @relation(fields: [createdBy], references: [id])
 
   @@unique([name, createdBy])
   @@index([createdBy])
   @@index([mode])
   @@index([status, createdAt])
+}
+
+model other_revenue_items {
+  id        String   @id @default(uuid())
+  versionId String
+  year      Int
+  amount    Decimal  @default(0) @db.Decimal(15, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  versions  versions @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@unique([versionId, year])
+  @@index([versionId, year])
+}
+
+model balance_sheet_settings {
+  id            String   @id @default(uuid())
+  versionId     String   @unique
+  startingCash  Decimal  @default(0) @db.Decimal(15, 2)
+  openingEquity Decimal  @default(0) @db.Decimal(15, 2)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  versions      versions @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId])
+}
+
+model historical_actuals {
+  id        String   @id @default(uuid())
+  versionId String
+  year      Int
+
+  // P&L - Revenue
+  tuitionFrenchCurriculum Decimal @default(0) @db.Decimal(15, 2)
+  tuitionIB               Decimal @default(0) @db.Decimal(15, 2)
+  otherIncome             Decimal @default(0) @db.Decimal(15, 2)
+  totalRevenues           Decimal @default(0) @db.Decimal(15, 2)
+
+  // P&L - Expenses
+  salariesAndRelatedCosts Decimal @default(0) @db.Decimal(15, 2)
+  schoolRent              Decimal @default(0) @db.Decimal(15, 2)
+  otherExpenses           Decimal @default(0) @db.Decimal(15, 2)
+  totalOperatingExpenses  Decimal @default(0) @db.Decimal(15, 2)
+
+  // P&L - Other
+  depreciationAmortization Decimal @default(0) @db.Decimal(15, 2)
+  interestIncome           Decimal @default(0) @db.Decimal(15, 2)
+  interestExpenses         Decimal @default(0) @db.Decimal(15, 2)
+  netResult                Decimal @default(0) @db.Decimal(15, 2)
+
+  // Balance Sheet - Assets
+  cashOnHandAndInBank              Decimal @default(0) @db.Decimal(15, 2)
+  accountsReceivableAndOthers      Decimal @default(0) @db.Decimal(15, 2)
+  totalCurrentAssets               Decimal @default(0) @db.Decimal(15, 2)
+  tangibleIntangibleAssetsGross    Decimal @default(0) @db.Decimal(15, 2)
+  accumulatedDepreciationAmort     Decimal @default(0) @db.Decimal(15, 2)
+  nonCurrentAssets                 Decimal @default(0) @db.Decimal(15, 2)
+  totalAssets                      Decimal @default(0) @db.Decimal(15, 2)
+
+  // Balance Sheet - Liabilities
+  accountsPayable         Decimal @default(0) @db.Decimal(15, 2)
+  deferredIncome          Decimal @default(0) @db.Decimal(15, 2)
+  totalCurrentLiabilities Decimal @default(0) @db.Decimal(15, 2)
+  provisions              Decimal @default(0) @db.Decimal(15, 2)
+  totalLiabilities        Decimal @default(0) @db.Decimal(15, 2)
+
+  // Balance Sheet - Equity
+  retainedEarnings Decimal @default(0) @db.Decimal(15, 2)
+  equity           Decimal @default(0) @db.Decimal(15, 2)
+
+  // Cash Flow - Operating Activities
+  cfNetResult                    Decimal @default(0) @db.Decimal(15, 2)
+  cfAccountsReceivable           Decimal @default(0) @db.Decimal(15, 2)
+  cfPrepaidExpenses              Decimal @default(0) @db.Decimal(15, 2)
+  cfLoans                        Decimal @default(0) @db.Decimal(15, 2)
+  cfIntangibleAssets             Decimal @default(0) @db.Decimal(15, 2)
+  cfAccountsPayable              Decimal @default(0) @db.Decimal(15, 2)
+  cfAccruedExpenses              Decimal @default(0) @db.Decimal(15, 2)
+  cfDeferredIncome               Decimal @default(0) @db.Decimal(15, 2)
+  cfProvisions                   Decimal @default(0) @db.Decimal(15, 2)
+  cfDepreciation                 Decimal @default(0) @db.Decimal(15, 2)
+  netCashFromOperatingActivities Decimal @default(0) @db.Decimal(15, 2)
+
+  // Cash Flow - Investing Activities
+  cfAdditionsFixedAssets         Decimal @default(0) @db.Decimal(15, 2)
+  netCashFromInvestingActivities Decimal @default(0) @db.Decimal(15, 2)
+
+  // Cash Flow - Financing Activities
+  cfChangesInFundBalance         Decimal @default(0) @db.Decimal(15, 2)
+  netCashFromFinancingActivities Decimal @default(0) @db.Decimal(15, 2)
+
+  // Cash Flow - Summary
+  netIncreaseDecreaseCash Decimal @default(0) @db.Decimal(15, 2)
+  cashBeginningOfPeriod   Decimal @default(0) @db.Decimal(15, 2)
+  cashEndOfPeriod         Decimal @default(0) @db.Decimal(15, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  versions  versions @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@unique([versionId, year])
+  @@index([versionId])
 }
 
 enum CapexCategory {

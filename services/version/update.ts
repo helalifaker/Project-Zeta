@@ -88,10 +88,10 @@ export async function updateVersion(
         ...(data.status && { status: data.status }),
       },
       include: {
-        curriculumPlans: true,
-        rentPlan: true,
-        capexItems: true,
-        opexSubAccounts: true,
+        curriculum_plans: true,
+        rent_plans: true,
+        capex_items: true,
+        opex_sub_accounts: true,
         creator: {
           select: {
             id: true,

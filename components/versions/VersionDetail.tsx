@@ -22,6 +22,7 @@ import { CapexCategory } from '@prisma/client';
 import { VersionStatusBadge } from './VersionStatusBadge';
 import { VersionActionMenu } from './VersionActionMenu';
 import { CostsAnalysisDashboard } from './costs-analysis/CostsAnalysisDashboard';
+import { FinancialStatementsWrapper } from './financial-statements/FinancialStatementsWrapper';
 import { cachedFetch } from '@/lib/utils/fetch-cache';
 import { serializeVersionForClient } from '@/lib/utils/serialize';
 import type { VersionWithRelations } from '@/services/version';
@@ -32,6 +33,7 @@ import {
   CurriculumCard,
   type EditFormData,
 } from './curriculum';
+import { HistoricalDataDisplay } from './HistoricalDataDisplay';
 
 interface VersionDetailProps {
   versionId: string;
@@ -104,7 +106,7 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
   const [adminSettings, setAdminSettings] = useState<{
     cpiRate: number;
     discountRate: number;
-    taxRate: number;
+    zakatRate: number; // Zakat rate (2.5% default for Saudi Arabia)
   } | null>(null);
   const [adminSettingsLoading, setAdminSettingsLoading] = useState(true);
 
@@ -179,7 +181,7 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
           setAdminSettings({
             cpiRate: data.data.cpiRate ?? 0.03,
             discountRate: data.data.discountRate ?? 0.08,
-            taxRate: data.data.taxRate ?? 0.15,
+            zakatRate: data.data.zakatRate ?? data.data.taxRate ?? 0.025, // Fallback to taxRate for backward compatibility
           });
         } else {
           console.error('Failed to fetch admin settings:', data.error);
@@ -187,7 +189,7 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
           setAdminSettings({
             cpiRate: 0.03,
             discountRate: 0.08,
-            taxRate: 0.15,
+            zakatRate: 0.025, // Default 2.5% for Saudi Arabia
           });
         }
       } catch (error) {
@@ -1304,6 +1306,9 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
               </div>
             </CardContent>
           </Card>
+
+          {/* Historical Data Display */}
+          <HistoricalDataDisplay versionId={versionId} />
         </TabsContent>
 
         <TabsContent value="curriculum" className="space-y-4">
@@ -2222,18 +2227,17 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
         </TabsContent>
 
         <TabsContent value="financials" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Financial Statements</CardTitle>
-              <CardDescription>View PnL, Balance Sheet, and Cash Flow statements</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-muted-foreground mb-4">
-                Financial statements feature is under development. This will display Profit & Loss, 
-                Balance Sheet, and Cash Flow statements for this version.
-              </p>
-            </CardContent>
-          </Card>
+          {version && adminSettings ? (
+            <FinancialStatementsWrapper version={version} adminSettings={adminSettings} />
+          ) : (
+            <Card>
+              <CardContent className="py-12">
+                <p className="text-muted-foreground text-center">
+                  Loading financial statements...
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="reports" className="space-y-4">

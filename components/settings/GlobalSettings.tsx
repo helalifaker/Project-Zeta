@@ -34,13 +34,13 @@ export function GlobalSettings() {
       fetchSettings();
     } else {
       setFormData({
-        cpiRate: settings.cpiRate,
-        discountRate: settings.discountRate,
-        taxRate: settings.taxRate,
-        currency: settings.currency,
-        timezone: settings.timezone,
-        dateFormat: settings.dateFormat,
-        numberFormat: settings.numberFormat,
+        cpiRate: settings.cpiRate ?? 0.03,
+        discountRate: settings.discountRate ?? 0.08,
+        taxRate: settings.taxRate ?? 0.15,
+        currency: settings.currency ?? 'SAR',
+        timezone: settings.timezone ?? 'Asia/Riyadh',
+        dateFormat: settings.dateFormat ?? 'DD/MM/YYYY',
+        numberFormat: settings.numberFormat ?? '1,000,000',
       });
     }
   }, [settings, fetchSettings]);
@@ -49,13 +49,13 @@ export function GlobalSettings() {
   useEffect(() => {
     if (settings) {
       setFormData({
-        cpiRate: settings.cpiRate,
-        discountRate: settings.discountRate,
-        taxRate: settings.taxRate,
-        currency: settings.currency,
-        timezone: settings.timezone,
-        dateFormat: settings.dateFormat,
-        numberFormat: settings.numberFormat,
+        cpiRate: settings.cpiRate ?? 0.03,
+        discountRate: settings.discountRate ?? 0.08,
+        taxRate: settings.taxRate ?? 0.15,
+        currency: settings.currency ?? 'SAR',
+        timezone: settings.timezone ?? 'Asia/Riyadh',
+        dateFormat: settings.dateFormat ?? 'DD/MM/YYYY',
+        numberFormat: settings.numberFormat ?? '1,000,000',
       });
     }
   }, [settings]);
