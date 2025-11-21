@@ -116,10 +116,34 @@ export function CostsAnalysisDashboard({
 
     const calcStart = performance.now();
     try {
+      // ✅ FIX: Filter out curriculum plans that don't have studentsProjection data for year 2028
+      // This prevents errors when IB is enabled but studentsProjection hasn't been initialized yet
+      const validPlans = version.curriculumPlans.filter((plan) => {
+        const projection = (plan.studentsProjection as Array<{ year: number; students: number }>) || [];
+        const hasYear2028 = projection.some((p) => p.year === 2028);
+        
+        // Only include plans with valid projection data for year 2028
+        // Skip plans with capacity = 0 (disabled IB) or missing projection data
+        if (plan.capacity === 0) {
+          return false; // Disabled curriculum, skip
+        }
+        if (!hasYear2028) {
+          console.warn(`⚠️ Skipping ${plan.curriculumType} curriculum: missing studentsProjection data for year 2028`);
+          return false;
+        }
+        return true;
+      });
+      
+      // If no valid plans, return null (can't calculate without valid data)
+      if (validPlans.length === 0) {
+        console.warn('⚠️ No valid curriculum plans with studentsProjection data for year 2028');
+        return null;
+      }
+      
       // Calculate staff cost base
       // Use 2028 as base year (relocation year) for staff cost calculations
       const staffCostBaseResult = calculateStaffCostBaseFromCurriculum(
-        version.curriculumPlans.map((plan) => ({
+        validPlans.map((plan) => ({
           curriculumType: plan.curriculumType as 'FR' | 'IB',
           studentsProjection: (plan.studentsProjection as Array<{ year: number; students: number }>) || [],
           teacherRatio: plan.teacherRatio ? toDecimal(plan.teacherRatio) : null,
@@ -136,8 +160,9 @@ export function CostsAnalysisDashboard({
       }
 
       // Prepare full projection params
+      // Use validPlans (filtered to only include plans with year 2028 data)
       const params: FullProjectionParams = {
-        curriculumPlans: version.curriculumPlans.map((plan) => ({
+        curriculumPlans: validPlans.map((plan) => ({
           curriculumType: plan.curriculumType as 'FR' | 'IB',
           capacity: plan.capacity,
           tuitionBase: plan.tuitionBase || 0,

@@ -835,6 +835,36 @@ export async function PATCH(
               }
             }
             updateData.studentsProjection = planUpdate.studentsProjection;
+          } else if (planUpdate.capacity !== undefined && planUpdate.capacity > 0) {
+            // ✅ FIX: When enabling IB (capacity > 0), ensure studentsProjection is initialized
+            // This prevents "Students projection not found for year 2028" errors
+            // Fetch existing plan to check current studentsProjection
+            const existingPlan = await prisma.curriculum_plans.findUnique({
+              where: { id: planUpdate.id },
+              select: { studentsProjection: true },
+            });
+            
+            // Check if studentsProjection exists and has year 2028
+            let needsInitialization = false;
+            if (!existingPlan || !existingPlan.studentsProjection) {
+              needsInitialization = true;
+            } else {
+              const projection = existingPlan.studentsProjection as Array<{ year: number; students: number }> | null;
+              if (!Array.isArray(projection) || !projection.find((p) => p.year === 2028)) {
+                needsInitialization = true;
+              }
+            }
+            
+            if (needsInitialization) {
+              // Initialize studentsProjection with all years (2023-2052) with 0 students
+              // User can then edit the ramp-up section to set actual values
+              const initialProjection: Array<{ year: number; students: number }> = [];
+              for (let year = 2023; year <= 2052; year++) {
+                initialProjection.push({ year, students: 0 });
+              }
+              updateData.studentsProjection = initialProjection;
+              console.log(`✅ [IB TOGGLE FIX] Initialized studentsProjection for plan ${planUpdate.id} with ${initialProjection.length} years`);
+            }
           }
 
           if (Object.keys(updateData).length > 0) {
@@ -843,9 +873,11 @@ export async function PATCH(
             
             // PERFORMANCE FIX: For capacity-only updates, return minimal fields
             // This avoids transferring large studentsProjection JSON (30 years = ~3KB)
+            // ✅ FIX: If studentsProjection was initialized, we need to return it
             const isCapacityOnly = 
               Object.keys(updateData).length === 1 && 
-              updateData.capacity !== undefined;
+              updateData.capacity !== undefined &&
+              updateData.studentsProjection === undefined;
             
             let selectFields: any;
             if (isCapacityOnly) {
@@ -876,7 +908,8 @@ export async function PATCH(
               };
               
               // Only include studentsProjection if it was actually updated
-              if (planUpdate.studentsProjection !== undefined) {
+              // ✅ FIX: Check both planUpdate and updateData (in case it was initialized)
+              if (planUpdate.studentsProjection !== undefined || updateData.studentsProjection !== undefined) {
                 selectFields.studentsProjection = true;
               }
             }
