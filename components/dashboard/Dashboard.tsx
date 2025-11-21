@@ -11,7 +11,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skeleton } from '@/components/ui/skeleton';
 import { KPIGrid } from './KPIGrid';
 import { VersionSelector } from './VersionSelector';
+import { HeroSection } from './HeroSection';
 import { useDashboardStore } from '@/stores/dashboard-store';
+import { getScenarioHealth } from '@/lib/utils/metric-health';
 import { useFinancialCalculation } from '@/hooks/useFinancialCalculation';
 import { useDebounce } from '@/hooks/useDebounce';
 import { serializeVersionForClient } from '@/lib/utils/serialize';
@@ -21,25 +23,41 @@ import type { VersionWithRelations } from '@/services/version';
 import type { FullProjectionParams } from '@/lib/calculations/financial/projection';
 
 // Dynamic imports for heavy chart components (Recharts is heavy)
-const RevenueChart = dynamic(() => import('@/components/charts/RevenueChart').then(mod => ({ default: mod.RevenueChart })), {
-  loading: () => <Skeleton className="h-96 w-full" />,
-  ssr: false,
-});
+const RevenueChart = dynamic(
+  () => import('@/components/charts/RevenueChart').then((mod) => ({ default: mod.RevenueChart })),
+  {
+    loading: () => <Skeleton className="h-96 w-full" />,
+    ssr: false,
+  }
+);
 
-const EBITDATrendChart = dynamic(() => import('@/components/charts/EBITDATrendChart').then(mod => ({ default: mod.EBITDATrendChart })), {
-  loading: () => <Skeleton className="h-96 w-full" />,
-  ssr: false,
-});
+const EBITDATrendChart = dynamic(
+  () =>
+    import('@/components/charts/EBITDATrendChart').then((mod) => ({
+      default: mod.EBITDATrendChart,
+    })),
+  {
+    loading: () => <Skeleton className="h-96 w-full" />,
+    ssr: false,
+  }
+);
 
-const RentLoadChart = dynamic(() => import('@/components/charts/RentLoadChart').then(mod => ({ default: mod.RentLoadChart })), {
-  loading: () => <Skeleton className="h-96 w-full" />,
-  ssr: false,
-});
+const RentLoadChart = dynamic(
+  () => import('@/components/charts/RentLoadChart').then((mod) => ({ default: mod.RentLoadChart })),
+  {
+    loading: () => <Skeleton className="h-96 w-full" />,
+    ssr: false,
+  }
+);
 
-const EnrollmentChart = dynamic(() => import('@/components/charts/EnrollmentChart').then(mod => ({ default: mod.EnrollmentChart })), {
-  loading: () => <Skeleton className="h-96 w-full" />,
-  ssr: false,
-});
+const EnrollmentChart = dynamic(
+  () =>
+    import('@/components/charts/EnrollmentChart').then((mod) => ({ default: mod.EnrollmentChart })),
+  {
+    loading: () => <Skeleton className="h-96 w-full" />,
+    ssr: false,
+  }
+);
 
 interface DashboardProps {
   versions?: VersionWithRelations[]; // Optional - will fetch on client if not provided
@@ -53,7 +71,7 @@ function versionToProjectionParams(version: VersionWithRelations): FullProjectio
     versionName: version.name,
     hasRentPlan: !!version.rentPlan,
     numCurriculumPlans: version.curriculumPlans?.length || 0,
-    curriculumTypes: version.curriculumPlans?.map(cp => cp.curriculumType) || [],
+    curriculumTypes: version.curriculumPlans?.map((cp) => cp.curriculumType) || [],
   });
 
   if (!version.rentPlan) {
@@ -62,7 +80,10 @@ function versionToProjectionParams(version: VersionWithRelations): FullProjectio
   }
 
   if (version.curriculumPlans.length < 2) {
-    console.error('❌ versionToProjectionParams: Less than 2 curriculum plans:', version.curriculumPlans.length);
+    console.error(
+      '❌ versionToProjectionParams: Less than 2 curriculum plans:',
+      version.curriculumPlans.length
+    );
     return null;
   }
 
@@ -78,7 +99,10 @@ function versionToProjectionParams(version: VersionWithRelations): FullProjectio
   });
 
   if (!frPlan || !ibPlan) {
-    console.error('❌ versionToProjectionParams: Missing FR or IB plan', { hasFR: !!frPlan, hasIB: !!ibPlan });
+    console.error('❌ versionToProjectionParams: Missing FR or IB plan', {
+      hasFR: !!frPlan,
+      hasIB: !!ibPlan,
+    });
     return null;
   }
 
@@ -117,7 +141,11 @@ function versionToProjectionParams(version: VersionWithRelations): FullProjectio
       return isNaN(parsed) ? 0 : parsed;
     }
     // Check if it's a Decimal object
-    if (value !== null && typeof value === 'object' && typeof (value as any).toNumber === 'function') {
+    if (
+      value !== null &&
+      typeof value === 'object' &&
+      typeof (value as any).toNumber === 'function'
+    ) {
       return (value as any).toNumber();
     }
     // Fallback
@@ -133,7 +161,7 @@ function versionToProjectionParams(version: VersionWithRelations): FullProjectio
   const adminSettings = {
     cpiRate: 0.03,
     discountRate: 0.08,
-    taxRate: 0.20,
+    taxRate: 0.2,
   };
 
   // Default staff cost (should come from version data)
@@ -173,19 +201,25 @@ function versionToProjectionParams(version: VersionWithRelations): FullProjectio
       },
     ],
     rentPlan: {
-      rentModel: version.rentPlan.rentModel as 'FIXED_ESCALATION' | 'REVENUE_SHARE' | 'PARTNER_MODEL',
+      rentModel: version.rentPlan.rentModel as
+        | 'FIXED_ESCALATION'
+        | 'REVENUE_SHARE'
+        | 'PARTNER_MODEL',
       // Ensure parameters are serialized (no Decimal objects)
-      parameters: serializeRentPlanParametersForWorker(version.rentPlan.parameters as Record<string, unknown>),
+      parameters: serializeRentPlanParametersForWorker(
+        version.rentPlan.parameters as Record<string, unknown>
+      ),
     },
     staffCostBase: toNumber(staffCostBase), // Ensure it's a number, not Decimal
     staffCostCpiFrequency,
-    capexItems: capexItems.map(item => ({
+    capexItems: capexItems.map((item) => ({
       year: item.year,
       amount: toNumber(item.amount), // Ensure it's a number, not Decimal
     })),
-    opexSubAccounts: opexSubAccounts.map(account => ({
+    opexSubAccounts: opexSubAccounts.map((account) => ({
       subAccountName: account.subAccountName,
-      percentOfRevenue: account.percentOfRevenue !== null ? toNumber(account.percentOfRevenue) : null,
+      percentOfRevenue:
+        account.percentOfRevenue !== null ? toNumber(account.percentOfRevenue) : null,
       isFixed: account.isFixed,
       fixedAmount: account.fixedAmount !== null ? toNumber(account.fixedAmount) : null,
     })),
@@ -203,7 +237,9 @@ function versionToProjectionParams(version: VersionWithRelations): FullProjectio
  * Transform projection years to chart data format
  * Note: Data from Worker is already serialized to numbers (no Decimal objects)
  */
-function transformProjectionData(projection: NonNullable<ReturnType<typeof useFinancialCalculation>['projection']>) {
+function transformProjectionData(
+  projection: NonNullable<ReturnType<typeof useFinancialCalculation>['projection']>
+) {
   return {
     revenueRent: projection.years.map((year) => ({
       year: year.year,
@@ -216,7 +252,8 @@ function transformProjectionData(projection: NonNullable<ReturnType<typeof useFi
     })),
     rentLoad: projection.years.map((year) => ({
       year: year.year,
-      rentLoad: typeof year.rentLoad === 'number' ? year.rentLoad : (year.rentLoad as any).toNumber(),
+      rentLoad:
+        typeof year.rentLoad === 'number' ? year.rentLoad : (year.rentLoad as any).toNumber(),
     })),
     enrollment: projection.years.map((year) => ({
       year: year.year,
@@ -236,13 +273,17 @@ export function Dashboard({ versions: initialVersions }: DashboardProps) {
     setError,
     projection,
   } = useDashboardStore();
-  const { calculate, loading: calculationLoading, error: calculationError, projection: calculatedProjection } =
-    useFinancialCalculation();
-  
+  const {
+    calculate,
+    loading: calculationLoading,
+    error: calculationError,
+    projection: calculatedProjection,
+  } = useFinancialCalculation();
+
   // Client-side version loading
   const [versions, setVersionsState] = useState<VersionWithRelations[]>(initialVersions || []);
   const [versionsLoading, setVersionsLoading] = useState(!initialVersions);
-  
+
   // Fetch versions on client side if not provided by server
   useEffect(() => {
     if (initialVersions) {
@@ -251,60 +292,60 @@ export function Dashboard({ versions: initialVersions }: DashboardProps) {
       setVersionsLoading(false);
       return;
     }
-    
+
     // Prevent duplicate fetches (React Strict Mode runs effects twice in development)
     if (versionsFetchedRef.current) {
       return;
     }
     versionsFetchedRef.current = true;
-    
+
     // Fetch versions from API (lightweight for speed)
     console.log('📡 Fetching versions from API (client-side - lightweight)...');
     const fetchStart = performance.now();
-    
+
     // Use cached fetch to prevent duplicate concurrent requests
     cachedFetch('/api/versions?page=1&limit=10&lightweight=true')
-      .then(response => response.json())
-      .then(data => {
+      .then((response) => response.json())
+      .then((data) => {
         const fetchTime = performance.now() - fetchStart;
         console.log(`✅ Versions loaded in ${fetchTime.toFixed(0)}ms`);
-        
+
         if (data.success && data.data?.versions) {
           const versionsList = data.data.versions;
           setVersionsState(versionsList);
-          
+
           // OPTIMIZATION: Pre-fetch first version's details immediately
           // This eliminates the 1400ms wait after version selection
           if (versionsList.length > 0 && versionsList[0]?.id) {
             const firstVersionId = versionsList[0].id;
             console.log('⚡ Pre-fetching first version details for instant display...');
-            
+
             // Mark as fetching to prevent duplicate requests
             fetchingRef.current.add(firstVersionId);
-            
+
             // Fetch full details in background (don't block UI)
             // Use cached fetch to prevent duplicate concurrent requests
             cachedFetch(`/api/versions/${firstVersionId}`)
-              .then(async response => {
+              .then(async (response) => {
                 if (!response.ok) return null;
                 const contentType = response.headers.get('content-type');
                 if (!contentType || !contentType.includes('application/json')) return null;
                 return response.json();
               })
-              .then(versionData => {
+              .then((versionData) => {
                 if (versionData?.success && versionData?.data) {
                   console.log('⚡ Pre-fetched version details cached');
                   const serializedVersion = serializeVersionForClient(versionData.data);
-                  setVersionCache(prev => {
+                  setVersionCache((prev) => {
                     const newCache = new Map(prev);
                     newCache.set(firstVersionId, serializedVersion);
                     return newCache;
                   });
-                  setCacheVersion(v => v + 1);
+                  setCacheVersion((v) => v + 1);
                   // Note: Auto-selection is handled by separate useEffect to avoid race conditions
                 }
               })
-              .catch(error => {
+              .catch((error) => {
                 console.warn('⚠️ Pre-fetch failed (non-critical):', error.message);
               })
               .finally(() => {
@@ -315,40 +356,40 @@ export function Dashboard({ versions: initialVersions }: DashboardProps) {
         }
         setVersionsLoading(false);
       })
-      .catch(error => {
+      .catch((error) => {
         console.error('❌ Failed to fetch versions:', error);
         setVersionsLoading(false);
       });
   }, [initialVersions]);
-  
+
   // Cache for loaded versions (to avoid re-fetching)
   // Initialize cache safely to avoid hydration issues
   const [versionCache, setVersionCache] = useState<Map<string, VersionWithRelations>>(() => {
     // Initialize empty map on first render only (SSR-safe)
     return new Map<string, VersionWithRelations>();
   });
-  
+
   // Cache version counter to trigger re-renders when cache updates
   const [cacheVersion, setCacheVersion] = useState(0);
-  
+
   // Track in-flight fetches to prevent duplicate requests
   const fetchingRef = useRef<Set<string>>(new Set());
-  
+
   // Track if versions have been fetched to prevent duplicate fetches (React Strict Mode)
   const versionsFetchedRef = useRef(false);
-  
+
   // Initialize cache with provided versions once on mount
   const [cacheInitialized, setCacheInitialized] = useState(false);
   useEffect(() => {
     if (!cacheInitialized && versions.length > 0) {
       const newCache = new Map<string, VersionWithRelations>();
-      versions.forEach(v => {
+      versions.forEach((v) => {
         if (v && v.id) {
           newCache.set(v.id, v);
         }
       });
       setVersionCache(newCache);
-      setCacheVersion(v => v + 1); // Trigger selectedVersion memo update
+      setCacheVersion((v) => v + 1); // Trigger selectedVersion memo update
       setCacheInitialized(true);
     }
   }, [cacheInitialized, versions]);
@@ -371,60 +412,60 @@ export function Dashboard({ versions: initialVersions }: DashboardProps) {
   // Optimized: cache is the only source of complete versions
   const selectedVersion = useMemo(() => {
     if (!selectedVersionId) return null;
-    
+
     // Cache is the source of truth - it contains complete versions with relations
     // Initial versions are also stored in cache by cacheInitialized effect
     const cached = versionCache.get(selectedVersionId);
     if (cached && cached.curriculumPlans && cached.rentPlan) {
       return cached;
     }
-    
+
     return null; // Wait for API fetch to complete
   }, [selectedVersionId, cacheVersion]); // Only depend on cacheVersion - cache updates trigger recalculation
   // Note: cacheVersion increments when cache updates, triggering memo recalculation
-  
+
   // Load version details on-demand when selected version is not in cache OR incomplete
   useEffect(() => {
     if (!selectedVersionId) return;
-    
+
     // Check cache before fetching (but don't include versionCache in deps)
     const cached = versionCache.get(selectedVersionId);
     // Only skip fetch if we have a COMPLETE cached version with relations
     if (cached && cached.curriculumPlans && cached.rentPlan) {
       return; // Already have complete version
     }
-    
+
     // Check if already fetching (prevent duplicate requests)
     // Use a synchronous check and add atomically to prevent race conditions
     if (fetchingRef.current.has(selectedVersionId)) {
       return; // Already fetching
     }
-    
+
     // Mark as fetching IMMEDIATELY (before async operations)
     fetchingRef.current.add(selectedVersionId);
     let cancelled = false;
-    
+
     // Background fetch (don't block UI with loading state)
     // Use cached fetch to prevent duplicate concurrent requests
     cachedFetch(`/api/versions/${selectedVersionId}`)
-      .then(async response => {
+      .then(async (response) => {
         if (cancelled) return null;
-        
+
         // Check if response is OK before parsing JSON
         if (!response.ok) {
           const errorText = await response.text();
           throw new Error(`API error: ${response.status} ${response.statusText}`);
         }
-        
+
         // Check content type
         const contentType = response.headers.get('content-type');
         if (!contentType || !contentType.includes('application/json')) {
           throw new Error(`Invalid response type: ${contentType}`);
         }
-        
+
         return response.json();
       })
-      .then(data => {
+      .then((data) => {
         if (cancelled || !data) {
           return;
         }
@@ -449,10 +490,10 @@ export function Dashboard({ versions: initialVersions }: DashboardProps) {
         }
 
         const serializedVersion = serializeVersionForClient(data.data);
-        
+
         // Only update cache if not cancelled and not already cached
         if (!cancelled) {
-          setVersionCache(prev => {
+          setVersionCache((prev) => {
             // Double-check cache hasn't been updated by another request
             const existing = prev.get(selectedVersionId);
             if (existing && existing.curriculumPlans && existing.rentPlan) {
@@ -462,10 +503,10 @@ export function Dashboard({ versions: initialVersions }: DashboardProps) {
             newCache.set(selectedVersionId, serializedVersion);
             return newCache;
           });
-          setCacheVersion(v => v + 1); // Trigger selectedVersion memo update
+          setCacheVersion((v) => v + 1); // Trigger selectedVersion memo update
         }
       })
-      .catch(error => {
+      .catch((error) => {
         if (!cancelled) {
           console.error('❌ Failed to load version details:', {
             error: error.message,
@@ -478,7 +519,7 @@ export function Dashboard({ versions: initialVersions }: DashboardProps) {
         // Remove from fetching set when done
         fetchingRef.current.delete(selectedVersionId);
       });
-    
+
     return () => {
       cancelled = true;
       fetchingRef.current.delete(selectedVersionId);
@@ -493,42 +534,49 @@ export function Dashboard({ versions: initialVersions }: DashboardProps) {
     if (!selectedVersion) return null;
     // Create a stable key from version data (not object reference)
     return `${selectedVersion.id}-${selectedVersion.curriculumPlans?.length || 0}-${selectedVersion.rentPlan?.id || ''}`;
-  }, [selectedVersion?.id, selectedVersion?.curriculumPlans?.length, selectedVersion?.rentPlan?.id]);
-  
+  }, [
+    selectedVersion?.id,
+    selectedVersion?.curriculumPlans?.length,
+    selectedVersion?.rentPlan?.id,
+  ]);
+
   // Track last calculated params to prevent duplicate calculations
   // Store both the key and the params to avoid recalculating when key is the same
-  const lastCalculatedParamsRef = useRef<{ key: string; params: FullProjectionParams | null } | null>(null);
-  
+  const lastCalculatedParamsRef = useRef<{
+    key: string;
+    params: FullProjectionParams | null;
+  } | null>(null);
+
   // Store latest selectedVersion in ref to access it without triggering memo recalculation
   const selectedVersionRef = useRef<typeof selectedVersion>(null);
   selectedVersionRef.current = selectedVersion;
-  
+
   const projectionParams = useMemo(() => {
     // Early return if no key (no version selected)
     if (!projectionParamsKey) {
       lastCalculatedParamsRef.current = null;
       return null;
     }
-    
+
     // Return cached params if key hasn't changed (key is stable, calculated from version data)
     // This prevents recalculation when selectedVersion object reference changes but data is identical
     const cached = lastCalculatedParamsRef.current;
     if (cached?.key === projectionParamsKey) {
       return cached.params; // Return cached immediately - no calculation needed
     }
-    
+
     // Calculate new params only if key changed (data actually changed)
     // Use ref to get latest version without adding it to dependencies
     const version = selectedVersionRef.current;
     if (!version) {
       return null;
     }
-    
+
     // Only calculate if we don't have cached params for this key
     const params = versionToProjectionParams(version);
-    lastCalculatedParamsRef.current = { 
-      key: projectionParamsKey, 
-      params
+    lastCalculatedParamsRef.current = {
+      key: projectionParamsKey,
+      params,
     };
     return params;
   }, [projectionParamsKey]); // Only depend on key - version accessed via ref to avoid recalculation
@@ -596,17 +644,14 @@ export function Dashboard({ versions: initialVersions }: DashboardProps) {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header with Version Selector */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-muted-foreground mt-1">
-            Financial projections and key metrics
-          </p>
-        </div>
+    <div className="space-y-8">
+      {/* Hero Section */}
+      <HeroSection
+        versionName={selectedVersion?.name || 'No version selected'}
+        status={getScenarioHealth(projection)}
+      >
         {versions.length > 0 && <VersionSelector versions={versions as any[]} />}
-      </div>
+      </HeroSection>
 
       {/* Empty State Message */}
       {!versionsLoading && versions.length === 0 && (
@@ -627,18 +672,21 @@ export function Dashboard({ versions: initialVersions }: DashboardProps) {
       )}
 
       {/* KPI Grid - Always show, even when empty */}
-      <KPIGrid
-        projection={projection || null}
-        totalVersions={versions.length}
-        loading={calculationLoading}
-      />
+      <div className="space-y-4">
+        <h3 className="text-sm font-medium text-muted-foreground">Key Performance Indicators</h3>
+        <KPIGrid
+          projection={projection || null}
+          totalVersions={versions.length}
+          loading={calculationLoading}
+        />
+      </div>
 
       {/* Charts Grid */}
       {chartData ? (
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="mt-12 grid gap-8 md:grid-cols-2">
           {/* Revenue vs Rent Chart */}
           <Card>
-            <CardHeader>
+            <CardHeader className="pb-4">
               <CardTitle>Revenue vs Rent</CardTitle>
               <CardDescription>30-year projection</CardDescription>
             </CardHeader>
@@ -649,7 +697,7 @@ export function Dashboard({ versions: initialVersions }: DashboardProps) {
 
           {/* EBITDA Trend Chart */}
           <Card>
-            <CardHeader>
+            <CardHeader className="pb-4">
               <CardTitle>EBITDA Trend</CardTitle>
               <CardDescription>Positive and negative periods</CardDescription>
             </CardHeader>
@@ -660,7 +708,7 @@ export function Dashboard({ versions: initialVersions }: DashboardProps) {
 
           {/* Rent Load % Chart */}
           <Card>
-            <CardHeader>
+            <CardHeader className="pb-4">
               <CardTitle>Rent Load %</CardTitle>
               <CardDescription>Rent as percentage of revenue</CardDescription>
             </CardHeader>
@@ -671,7 +719,7 @@ export function Dashboard({ versions: initialVersions }: DashboardProps) {
 
           {/* Enrollment Chart */}
           <Card>
-            <CardHeader>
+            <CardHeader className="pb-4">
               <CardTitle>Enrollment</CardTitle>
               <CardDescription>FR vs IB students over time</CardDescription>
             </CardHeader>
@@ -707,12 +755,9 @@ export function Dashboard({ versions: initialVersions }: DashboardProps) {
         </div>
       ) : calculationError ? (
         <Card className="p-6">
-          <div className="text-destructive">
-            Failed to calculate projection: {calculationError}
-          </div>
+          <div className="text-destructive">Failed to calculate projection: {calculationError}</div>
         </Card>
       ) : null}
     </div>
   );
 }
-

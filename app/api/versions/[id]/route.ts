@@ -57,7 +57,7 @@ async function validateCurriculumPlans(
     const existingPlans = allPlansInVersion.filter(p => updatedIds.has(p.id));
     
     // Get curriculum types from updated plans (use provided type or look up from database)
-    const updatedTypes = updatedPlans.map((cp) => {
+    const updatedTypes = updatedPlans.map((cp: { id: string; curriculumType?: 'FR' | 'IB' }) => {
       // If curriculumType is in request, use it; otherwise look it up from existing plans
       if (cp.curriculumType) {
         return cp.curriculumType;
@@ -100,7 +100,7 @@ async function validateCurriculumPlans(
     
     // Fallback: validate with updated plans only
     const updatedTypes = updatedPlans
-      .map((cp) => cp.curriculumType)
+      .map((cp: { id: string; curriculumType?: 'FR' | 'IB' }) => cp.curriculumType)
       .filter((t): t is 'FR' | 'IB' => t !== undefined);
     
     // If FR is in updated plans, assume it's OK
@@ -681,7 +681,18 @@ export async function PATCH(
       // PERFORMANCE OPTIMIZATION: For simple capacity updates (IB toggle), use faster validation
       // Check if this is a capacity-only update (no studentsProjection, no other fields)
       // CRITICAL: This must be detected correctly to avoid slow full validation
-      const isCapacityOnlyUpdate = data.curriculumPlans.every((cp) => {
+      const isCapacityOnlyUpdate = data.curriculumPlans.every((cp: {
+        id: string;
+        capacity?: number;
+        tuitionBase?: number;
+        cpiFrequency?: number;
+        studentsProjection?: Array<{ year: number; students: number }>;
+        tuitionGrowthRate?: number;
+        teacherRatio?: number;
+        nonTeacherRatio?: number;
+        teacherMonthlySalary?: number;
+        nonTeacherMonthlySalary?: number;
+      }) => {
         const hasOnlyCapacity = cp.capacity !== undefined;
         const hasNoOtherFields = 
           cp.tuitionBase === undefined &&
@@ -1431,6 +1442,10 @@ export async function PATCH(
       console.log(`📊 [PERF BREAKDOWN] Auth: ${authTime.toFixed(0)}ms | Version Check: ${versionCheckTime.toFixed(0)}ms | Body Parse: ${bodyParseTime.toFixed(0)}ms | Zod: ${zodValidationTime.toFixed(0)}ms`);
       console.log(`📊 [PERF BREAKDOWN] Validation: ${validationTime?.toFixed(0) || 'N/A'}ms | Update: ${updateWaitTime?.toFixed(0) || 'N/A'}ms | Version Fetch: ${versionFetchTime?.toFixed(0) || 'N/A'}ms | Response: ${responseTime.toFixed(0)}ms`);
 
+      // CACHE INVALIDATION: Clear version cache for user after updating version
+      const { invalidateVersionCache } = await import('@/lib/cache/version-cache');
+      invalidateVersionCache(userId);
+
       return NextResponse.json({
         success: true,
         data: {
@@ -1489,6 +1504,10 @@ export async function PATCH(
       console.log(`📊 [PERF SUMMARY] Total: ${totalTime.toFixed(0)}ms | Request Total: ${requestTotalTime.toFixed(0)}ms`);
       console.log(`📊 [PERF BREAKDOWN] Auth: ${authTime.toFixed(0)}ms | Version Check: ${versionCheckTime.toFixed(0)}ms | Body Parse: ${bodyParseTime.toFixed(0)}ms | Zod: ${zodValidationTime.toFixed(0)}ms`);
       console.log(`📊 [PERF BREAKDOWN] Validation: ${validationTime?.toFixed(0) || 'N/A'}ms | Update: ${updateWaitTime?.toFixed(0) || 'N/A'}ms | Version Fetch: ${versionFetchTime?.toFixed(0) || 'N/A'}ms | Response: ${responseBuildTime.toFixed(0)}ms`);
+
+      // CACHE INVALIDATION: Clear version cache for user after updating version
+      const { invalidateVersionCache } = await import('@/lib/cache/version-cache');
+      invalidateVersionCache(userId);
 
       return NextResponse.json({
         success: true,
@@ -1631,6 +1650,10 @@ export async function DELETE(
         versionName: existingVersion.name,
       },
     });
+
+    // CACHE INVALIDATION: Clear version cache for user after deleting version
+    const { invalidateVersionCache } = await import('@/lib/cache/version-cache');
+    invalidateVersionCache(userId);
 
     return NextResponse.json({
       success: true,

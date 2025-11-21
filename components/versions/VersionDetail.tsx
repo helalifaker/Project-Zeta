@@ -13,9 +13,22 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CapexTimelineChart } from '@/components/charts/CapexTimelineChart';
 import { CapexCategory } from '@prisma/client';
@@ -28,12 +41,9 @@ import { serializeVersionForClient } from '@/lib/utils/serialize';
 import type { VersionWithRelations } from '@/services/version';
 import { RentModel } from '@prisma/client';
 import { ArrowLeft, Save, Edit2, X, Plus, Trash2 } from 'lucide-react';
-import {
-  CurriculumPlansHeader,
-  CurriculumCard,
-  type EditFormData,
-} from './curriculum';
+import { CurriculumPlansHeader, CurriculumCard, type EditFormData } from './curriculum';
 import { HistoricalDataDisplay } from './HistoricalDataDisplay';
+import { useRenderLogger } from '@/hooks/use-render-logger';
 
 interface VersionDetailProps {
   versionId: string;
@@ -51,6 +61,9 @@ function formatDate(date: Date | string): string {
 }
 
 export function VersionDetail({ versionId, version: initialVersion }: VersionDetailProps) {
+  // DIAGNOSTIC: Track render count
+  useRenderLogger('VersionDetail');
+
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('overview');
   const [version, setVersion] = useState<VersionWithRelations | null>(initialVersion || null);
@@ -125,12 +138,12 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
     const fetchStart = performance.now();
 
     cachedFetch(`/api/versions/${versionId}`)
-      .then(async response => {
+      .then(async (response) => {
         const fetchTime = performance.now() - fetchStart;
-        
+
         // Clone response for error handling (response can only be read once)
         const responseClone = response.clone();
-        
+
         if (!response.ok) {
           // Try to get error details from response
           let errorMessage = `Failed to fetch version: ${response.status}`;
@@ -150,10 +163,10 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
           }
           throw new Error(errorMessage);
         }
-        
+
         const data = await response.json();
         console.log(`✅ Version loaded in ${fetchTime.toFixed(0)}ms`);
-        
+
         if (data.success && data.data) {
           const serializedVersion = serializeVersionForClient(data.data);
           setVersion(serializedVersion);
@@ -163,7 +176,7 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
           setLoading(false);
         }
       })
-      .catch(err => {
+      .catch((err) => {
         console.error('❌ Error fetching version:', err);
         setError(err.message || 'Failed to fetch version');
         setLoading(false);
@@ -208,45 +221,74 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
   }, []);
 
   // Handle edit start
-  const handleEditStart = (plan: { id: string; capacity: number; tuitionBase: number | string; cpiFrequency: number; teacherRatio?: number | string | null; nonTeacherRatio?: number | string | null; tuitionGrowthRate?: number | string | null; teacherMonthlySalary?: number | string | null; nonTeacherMonthlySalary?: number | string | null; studentsProjection?: unknown }) => {
+  const handleEditStart = (plan: {
+    id: string;
+    capacity: number;
+    tuitionBase: number | string;
+    cpiFrequency: number;
+    teacherRatio?: number | string | null;
+    nonTeacherRatio?: number | string | null;
+    tuitionGrowthRate?: number | string | null;
+    teacherMonthlySalary?: number | string | null;
+    nonTeacherMonthlySalary?: number | string | null;
+    studentsProjection?: unknown;
+  }) => {
     setEditingPlanId(plan.id);
     // Convert Decimal to number if needed, then convert ratio to students per teacher
-    const teacherRatio = plan.teacherRatio 
-      ? (typeof plan.teacherRatio === 'string' ? parseFloat(plan.teacherRatio) : plan.teacherRatio)
+    const teacherRatio = plan.teacherRatio
+      ? typeof plan.teacherRatio === 'string'
+        ? parseFloat(plan.teacherRatio)
+        : plan.teacherRatio
       : 0.15; // Default ratio
     const nonTeacherRatio = plan.nonTeacherRatio
-      ? (typeof plan.nonTeacherRatio === 'string' ? parseFloat(plan.nonTeacherRatio) : plan.nonTeacherRatio)
+      ? typeof plan.nonTeacherRatio === 'string'
+        ? parseFloat(plan.nonTeacherRatio)
+        : plan.nonTeacherRatio
       : 0.08; // Default ratio
-    
+
     // Convert ratio to students per teacher/non-teacher for easier input
     const studentsPerTeacher = teacherRatio > 0 ? 1 / teacherRatio : 6.67; // Default: 6.67 students per teacher
     const studentsPerNonTeacher = nonTeacherRatio > 0 ? 1 / nonTeacherRatio : 12.5; // Default: 12.5 students per non-teacher
-    
+
     // Parse tuition growth rate
     const tuitionGrowthRate = plan.tuitionGrowthRate
-      ? (typeof plan.tuitionGrowthRate === 'string' ? parseFloat(plan.tuitionGrowthRate) : plan.tuitionGrowthRate)
+      ? typeof plan.tuitionGrowthRate === 'string'
+        ? parseFloat(plan.tuitionGrowthRate)
+        : plan.tuitionGrowthRate
       : 0.03; // Default: 3%
-    
+
     // Parse monthly salaries - use 0 instead of undefined to keep inputs controlled
     const teacherMonthlySalary = plan.teacherMonthlySalary
-      ? (typeof plan.teacherMonthlySalary === 'string' ? parseFloat(plan.teacherMonthlySalary) : plan.teacherMonthlySalary)
+      ? typeof plan.teacherMonthlySalary === 'string'
+        ? parseFloat(plan.teacherMonthlySalary)
+        : plan.teacherMonthlySalary
       : 0;
     const nonTeacherMonthlySalary = plan.nonTeacherMonthlySalary
-      ? (typeof plan.nonTeacherMonthlySalary === 'string' ? parseFloat(plan.nonTeacherMonthlySalary) : plan.nonTeacherMonthlySalary)
+      ? typeof plan.nonTeacherMonthlySalary === 'string'
+        ? parseFloat(plan.nonTeacherMonthlySalary)
+        : plan.nonTeacherMonthlySalary
       : 0;
-    
+
     // Parse studentsProjection JSON to extract ramp-up period (2028-2032) as percentages
     const rampUp: { [year: number]: number } = {};
     if (plan.studentsProjection && typeof plan.studentsProjection === 'object') {
       try {
-        const projection = Array.isArray(plan.studentsProjection) 
-          ? plan.studentsProjection 
+        const projection = Array.isArray(plan.studentsProjection)
+          ? plan.studentsProjection
           : JSON.parse(String(plan.studentsProjection));
-        
+
         if (Array.isArray(projection)) {
           projection.forEach((entry: { year?: number; students?: number }) => {
-            if (entry.year && entry.students !== undefined && entry.year >= 2028 && entry.year <= 2032) {
-              const students = typeof entry.students === 'number' ? entry.students : parseInt(String(entry.students)) || 0;
+            if (
+              entry.year &&
+              entry.students !== undefined &&
+              entry.year >= 2028 &&
+              entry.year <= 2032
+            ) {
+              const students =
+                typeof entry.students === 'number'
+                  ? entry.students
+                  : parseInt(String(entry.students)) || 0;
               // Convert to percentage of capacity
               rampUp[entry.year] = plan.capacity > 0 ? (students / plan.capacity) * 100 : 0;
             }
@@ -257,7 +299,7 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
         console.warn('Failed to parse studentsProjection:', e);
       }
     }
-    
+
     // If no ramp-up data exists, set defaults based on curriculum type (as percentages)
     const isFR = (plan as any).curriculumType === 'FR';
     if (Object.keys(rampUp).length === 0) {
@@ -269,10 +311,11 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
       rampUp[2031] = isFR ? 95 : 75;
       rampUp[2032] = 100; // 100% capacity by year 5
     }
-    
+
     setEditFormData({
       capacity: plan.capacity,
-      tuitionBase: typeof plan.tuitionBase === 'string' ? parseFloat(plan.tuitionBase) : plan.tuitionBase,
+      tuitionBase:
+        typeof plan.tuitionBase === 'string' ? parseFloat(plan.tuitionBase) : plan.tuitionBase,
       cpiFrequency: plan.cpiFrequency,
       tuitionGrowthRate,
       studentsPerTeacher,
@@ -350,14 +393,18 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
         });
         setError(null);
       } else {
-        setError('Update succeeded but response format unexpected. Please refresh the page to see changes.');
+        setError(
+          'Update succeeded but response format unexpected. Please refresh the page to see changes.'
+        );
       }
     } catch (error) {
       console.error('Error updating IB status:', error);
       if (error instanceof TypeError && error.message.includes('fetch')) {
         setError('Network error. Please check your connection and try again.');
       } else {
-        setError(error instanceof Error ? error.message : 'Failed to update IB status. Please try again.');
+        setError(
+          error instanceof Error ? error.message : 'Failed to update IB status. Please try again.'
+        );
       }
     } finally {
       setSaving(false);
@@ -373,7 +420,7 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
     try {
       // Build the request payload
       const requestPayload = {
-        curriculumPlans: version.curriculumPlans.map(plan =>
+        curriculumPlans: version.curriculumPlans.map((plan) =>
           plan.id === planId
             ? {
                 id: plan.id,
@@ -381,44 +428,56 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
                 tuitionBase: dataToSave.tuitionBase,
                 cpiFrequency: dataToSave.cpiFrequency,
                 // Convert students per teacher/non-teacher back to ratio for storage (only if provided)
-                ...(dataToSave.studentsPerTeacher && dataToSave.studentsPerTeacher > 0 && {
-                  teacherRatio: 1 / dataToSave.studentsPerTeacher
-                }),
-                ...(dataToSave.studentsPerNonTeacher && dataToSave.studentsPerNonTeacher > 0 && {
-                  nonTeacherRatio: 1 / dataToSave.studentsPerNonTeacher
-                }),
+                ...(dataToSave.studentsPerTeacher &&
+                  dataToSave.studentsPerTeacher > 0 && {
+                    teacherRatio: 1 / dataToSave.studentsPerTeacher,
+                  }),
+                ...(dataToSave.studentsPerNonTeacher &&
+                  dataToSave.studentsPerNonTeacher > 0 && {
+                    nonTeacherRatio: 1 / dataToSave.studentsPerNonTeacher,
+                  }),
                 // Build studentsProjection: ramp-up period (2028-2032) + maintain 2032 enrollment % (2033-2052)
                 studentsProjection: (() => {
                   const projection: Array<{ year: number; students: number }> = [];
                   // Get 2032 percentage (last year of ramp-up)
                   const year2032Percentage = dataToSave.rampUp?.[2032] ?? 100;
-                  const year2032Students = Math.round((dataToSave.capacity * year2032Percentage) / 100);
-                  
+                  const year2032Students = Math.round(
+                    (dataToSave.capacity * year2032Percentage) / 100
+                  );
+
                   // Historical and transition years (2023-2027): 0 students
                   for (let year = 2023; year <= 2027; year++) {
                     projection.push({ year, students: 0 });
                   }
-                  
+
                   // Ramp-up period (2028-2032): convert percentages to students
                   for (let year = 2028; year <= 2032; year++) {
                     const percentage = dataToSave.rampUp?.[year] ?? (year === 2032 ? 100 : 0);
                     const students = Math.round((dataToSave.capacity * percentage) / 100);
                     projection.push({ year, students });
                   }
-                  
+
                   // Post-ramp-up period (2033-2052): maintain same enrollment as 2032 (same utilization %)
                   // This maintains the enrollment percentage from the last year of ramp-up
                   for (let year = 2033; year <= 2052; year++) {
                     projection.push({ year, students: year2032Students });
                   }
-                  
+
                   return projection;
                 })(),
                 // Save tuition growth rate (only if provided)
-                ...(dataToSave.tuitionGrowthRate !== undefined && { tuitionGrowthRate: dataToSave.tuitionGrowthRate }),
+                ...(dataToSave.tuitionGrowthRate !== undefined && {
+                  tuitionGrowthRate: dataToSave.tuitionGrowthRate,
+                }),
                 // Save monthly salaries (only if > 0, convert 0 to undefined to indicate not set)
-                ...(dataToSave.teacherMonthlySalary && dataToSave.teacherMonthlySalary > 0 && { teacherMonthlySalary: dataToSave.teacherMonthlySalary }),
-                ...(dataToSave.nonTeacherMonthlySalary && dataToSave.nonTeacherMonthlySalary > 0 && { nonTeacherMonthlySalary: dataToSave.nonTeacherMonthlySalary }),
+                ...(dataToSave.teacherMonthlySalary &&
+                  dataToSave.teacherMonthlySalary > 0 && {
+                    teacherMonthlySalary: dataToSave.teacherMonthlySalary,
+                  }),
+                ...(dataToSave.nonTeacherMonthlySalary &&
+                  dataToSave.nonTeacherMonthlySalary > 0 && {
+                    nonTeacherMonthlySalary: dataToSave.nonTeacherMonthlySalary,
+                  }),
               }
             : { id: plan.id }
         ),
@@ -443,7 +502,7 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
         } catch (e) {
           console.error('❌ Failed to parse error response:', e);
           console.error('❌ Raw response text:', responseText);
-          errorData = { 
+          errorData = {
             error: `Server error (${response.status} ${response.statusText})`,
             rawResponse: responseText || '(empty response)',
           };
@@ -456,7 +515,10 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
           hasError: !!errorData.error,
           hasMessage: !!errorData.message,
         });
-        const errorMessage = errorData.error || errorData.message || `Failed to save changes (${response.status} ${response.statusText})`;
+        const errorMessage =
+          errorData.error ||
+          errorData.message ||
+          `Failed to save changes (${response.status} ${response.statusText})`;
         setError(errorMessage);
         setSaving(false);
         return;
@@ -466,29 +528,33 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
       if (data.success && data.data) {
         // Merge updated data with existing state to preserve optional fields
         const serializedVersion = serializeVersionForClient(data.data);
-        setVersion(prevVersion => {
+        setVersion((prevVersion) => {
           if (!prevVersion) return serializedVersion;
           // Merge: use new data for updated fields, keep existing for fields that weren't returned
           return {
             ...serializedVersion,
             // Preserve curriculum plans if not in response (partial update)
-            curriculumPlans: serializedVersion.curriculumPlans?.length > 0
-              ? serializedVersion.curriculumPlans
-              : (prevVersion.curriculumPlans || []),
+            curriculumPlans:
+              serializedVersion.curriculumPlans?.length > 0
+                ? serializedVersion.curriculumPlans
+                : prevVersion.curriculumPlans || [],
             // Preserve rent plan if not in response
             rentPlan: serializedVersion.rentPlan || prevVersion.rentPlan,
             // Preserve optional fields if they weren't in the response (empty arrays/null)
-            capexItems: serializedVersion.capexItems !== undefined
-              ? serializedVersion.capexItems
-              : (prevVersion.capexItems || []),
-            opexSubAccounts: serializedVersion.opexSubAccounts?.length > 0
-              ? serializedVersion.opexSubAccounts
-              : (prevVersion.opexSubAccounts || []),
+            capexItems:
+              serializedVersion.capexItems !== undefined
+                ? serializedVersion.capexItems
+                : prevVersion.capexItems || [],
+            opexSubAccounts:
+              serializedVersion.opexSubAccounts?.length > 0
+                ? serializedVersion.opexSubAccounts
+                : prevVersion.opexSubAccounts || [],
             creator: serializedVersion.creator || prevVersion.creator,
             basedOn: serializedVersion.basedOn || prevVersion.basedOn,
-            derivatives: serializedVersion.derivatives?.length > 0
-              ? serializedVersion.derivatives
-              : (prevVersion.derivatives || []),
+            derivatives:
+              serializedVersion.derivatives?.length > 0
+                ? serializedVersion.derivatives
+                : prevVersion.derivatives || [],
           };
         });
         setEditingPlanId(null);
@@ -508,7 +574,7 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
   // Handle rent plan edit start
   const handleRentPlanEditStart = () => {
     if (!version?.rentPlan) return;
-    
+
     const params = version.rentPlan.parameters as Record<string, unknown>;
     // Properly initialize form data with existing parameters
     const initialParams: Record<string, number> = {};
@@ -519,7 +585,7 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
         initialParams[key] = parseFloat(value);
       }
     });
-    
+
     setRentPlanFormData({
       rentModel: version.rentPlan.rentModel,
       parameters: initialParams,
@@ -536,7 +602,7 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
   // Handle rent plan save
   const handleRentPlanSave = async (rentModel: RentModel, parameters: Record<string, number>) => {
     if (!version?.rentPlan) return;
-    
+
     // Update form data state for consistency
     setRentPlanFormData({
       rentModel,
@@ -561,29 +627,33 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
       if (data.success && data.data) {
         // Merge updated data with existing state to preserve optional fields
         const serializedVersion = serializeVersionForClient(data.data);
-        setVersion(prevVersion => {
+        setVersion((prevVersion) => {
           if (!prevVersion) return serializedVersion;
           // Merge: use new data for updated fields, keep existing for fields that weren't returned
           return {
             ...serializedVersion,
             // Preserve curriculum plans if not in response (partial update)
-            curriculumPlans: serializedVersion.curriculumPlans?.length > 0
-              ? serializedVersion.curriculumPlans
-              : (prevVersion.curriculumPlans || []),
+            curriculumPlans:
+              serializedVersion.curriculumPlans?.length > 0
+                ? serializedVersion.curriculumPlans
+                : prevVersion.curriculumPlans || [],
             // Preserve rent plan if not in response
             rentPlan: serializedVersion.rentPlan || prevVersion.rentPlan,
             // Preserve optional fields if they weren't in the response (empty arrays/null)
-            capexItems: serializedVersion.capexItems !== undefined
-              ? serializedVersion.capexItems
-              : (prevVersion.capexItems || []),
-            opexSubAccounts: serializedVersion.opexSubAccounts?.length > 0
-              ? serializedVersion.opexSubAccounts
-              : (prevVersion.opexSubAccounts || []),
+            capexItems:
+              serializedVersion.capexItems !== undefined
+                ? serializedVersion.capexItems
+                : prevVersion.capexItems || [],
+            opexSubAccounts:
+              serializedVersion.opexSubAccounts?.length > 0
+                ? serializedVersion.opexSubAccounts
+                : prevVersion.opexSubAccounts || [],
             creator: serializedVersion.creator || prevVersion.creator,
             basedOn: serializedVersion.basedOn || prevVersion.basedOn,
-            derivatives: serializedVersion.derivatives?.length > 0
-              ? serializedVersion.derivatives
-              : (prevVersion.derivatives || []),
+            derivatives:
+              serializedVersion.derivatives?.length > 0
+                ? serializedVersion.derivatives
+                : prevVersion.derivatives || [],
           };
         });
         setEditingRentPlan(false);
@@ -625,7 +695,7 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
     try {
       const isNew = id === 'new';
       const endpoint = `/api/versions/${versionId}`;
-      
+
       // Build the opex sub-accounts array
       const updatedOpexAccounts = isNew
         ? [
@@ -812,14 +882,14 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
     try {
       const isNew = capexFormData.id === 'new';
       const endpoint = `/api/versions/${versionId}`;
-      
+
       // Build the capex items array (MANUAL ITEMS ONLY)
       // CRITICAL: Only include manual items (ruleId === null/undefined)
       // Auto-generated items should NOT be sent - they're managed by rules
       const manualItemsOnly = (version.capexItems || []).filter(
         (item: any) => item.ruleId === null || item.ruleId === undefined
       );
-      
+
       const updatedCapexItems = isNew
         ? [
             ...manualItemsOnly,
@@ -931,32 +1001,33 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
 
     try {
       const endpoint = `/api/versions/${versionId}`;
-      
+
       // Build the capex rules array
       const existingRules = version.capexRules || [];
-      const updatedCapexRules = capexRuleFormData.id === 'new' || !capexRuleFormData.id
-        ? [
-            ...existingRules.filter((r: any) => r.category !== capexRuleFormData.category), // Remove existing rule for this category
-            {
-              category: capexRuleFormData.category,
-              cycleYears: capexRuleFormData.cycleYears,
-              baseCost: capexRuleFormData.baseCost,
-              startingYear: capexRuleFormData.startingYear,
-              inflationIndex: capexRuleFormData.inflationIndex || null,
-            },
-          ]
-        : existingRules.map((rule: any) =>
-            rule.id === capexRuleFormData.id
-              ? {
-                  id: rule.id,
-                  category: capexRuleFormData.category,
-                  cycleYears: capexRuleFormData.cycleYears,
-                  baseCost: capexRuleFormData.baseCost,
-                  startingYear: capexRuleFormData.startingYear,
-                  inflationIndex: capexRuleFormData.inflationIndex || null,
-                }
-              : rule
-          );
+      const updatedCapexRules =
+        capexRuleFormData.id === 'new' || !capexRuleFormData.id
+          ? [
+              ...existingRules.filter((r: any) => r.category !== capexRuleFormData.category), // Remove existing rule for this category
+              {
+                category: capexRuleFormData.category,
+                cycleYears: capexRuleFormData.cycleYears,
+                baseCost: capexRuleFormData.baseCost,
+                startingYear: capexRuleFormData.startingYear,
+                inflationIndex: capexRuleFormData.inflationIndex || null,
+              },
+            ]
+          : existingRules.map((rule: any) =>
+              rule.id === capexRuleFormData.id
+                ? {
+                    id: rule.id,
+                    category: capexRuleFormData.category,
+                    cycleYears: capexRuleFormData.cycleYears,
+                    baseCost: capexRuleFormData.baseCost,
+                    startingYear: capexRuleFormData.startingYear,
+                    inflationIndex: capexRuleFormData.inflationIndex || null,
+                  }
+                : rule
+            );
 
       const response = await fetch(endpoint, {
         method: 'PATCH',
@@ -975,11 +1046,14 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
           const text = await response.text();
           throw new Error(`Server error (${response.status}): ${text || 'Unknown error'}`);
         }
-        
+
         // Show detailed validation errors if available
         if (errorData.details && typeof errorData.details === 'object') {
           const errorMessages = Object.entries(errorData.details)
-            .map(([field, messages]) => `${field}: ${Array.isArray(messages) ? messages.join(', ') : messages}`)
+            .map(
+              ([field, messages]) =>
+                `${field}: ${Array.isArray(messages) ? messages.join(', ') : messages}`
+            )
             .join('; ');
           throw new Error(errorMessages || errorData.error || 'Failed to save capex rule');
         }
@@ -993,8 +1067,14 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
         setVersion((prev) => ({
           ...prev!,
           ...serializedVersion,
-          capexRules: serializedVersion.capexRules !== undefined ? serializedVersion.capexRules : prev?.capexRules,
-          capexItems: serializedVersion.capexItems !== undefined ? serializedVersion.capexItems : prev?.capexItems,
+          capexRules:
+            serializedVersion.capexRules !== undefined
+              ? serializedVersion.capexRules
+              : prev?.capexRules,
+          capexItems:
+            serializedVersion.capexItems !== undefined
+              ? serializedVersion.capexItems
+              : prev?.capexItems,
         }));
         setEditingCapexRuleId(null);
         setCapexRuleFormData(null);
@@ -1013,7 +1093,11 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
   const handleCapexRuleDelete = async (id: string) => {
     if (!version) return;
 
-    if (!confirm('Are you sure you want to delete this capex rule? This will also delete all auto-generated capex items for this category.')) {
+    if (
+      !confirm(
+        'Are you sure you want to delete this capex rule? This will also delete all auto-generated capex items for this category.'
+      )
+    ) {
       return;
     }
 
@@ -1044,8 +1128,14 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
         setVersion((prev) => ({
           ...prev!,
           ...serializedVersion,
-          capexRules: serializedVersion.capexRules !== undefined ? serializedVersion.capexRules : prev?.capexRules,
-          capexItems: serializedVersion.capexItems !== undefined ? serializedVersion.capexItems : prev?.capexItems,
+          capexRules:
+            serializedVersion.capexRules !== undefined
+              ? serializedVersion.capexRules
+              : prev?.capexRules,
+          capexItems:
+            serializedVersion.capexItems !== undefined
+              ? serializedVersion.capexItems
+              : prev?.capexItems,
         }));
       } else {
         throw new Error(result.error || 'Failed to delete capex rule');
@@ -1072,14 +1162,13 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
     try {
       // CRITICAL: Only filter manual items - auto items can't be deleted this way
       // Auto items can only be deleted by deleting the rule
-      const updatedCapexItems = (version.capexItems || [])
-        .filter((item: any) => {
-          // Only include manual items (ruleId === null/undefined)
-          const isManual = item.ruleId === null || item.ruleId === undefined;
-          // Exclude the item being deleted
-          const isNotDeleted = item.id !== id;
-          return isManual && isNotDeleted;
-        });
+      const updatedCapexItems = (version.capexItems || []).filter((item: any) => {
+        // Only include manual items (ruleId === null/undefined)
+        const isManual = item.ruleId === null || item.ruleId === undefined;
+        // Exclude the item being deleted
+        const isNotDeleted = item.id !== id;
+        return isManual && isNotDeleted;
+      });
 
       const response = await fetch(`/api/versions/${versionId}`, {
         method: 'PATCH',
@@ -1147,9 +1236,7 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
   if (error && !version) {
     return (
       <Card className="p-6">
-        <div className="text-destructive">
-          {error || 'Version not found'}
-        </div>
+        <div className="text-destructive">{error || 'Version not found'}</div>
       </Card>
     );
   }
@@ -1212,11 +1299,7 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="space-y-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => router.push('/versions')}
-          >
+          <Button variant="ghost" size="sm" onClick={() => router.push('/versions')}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Versions
           </Button>
@@ -1224,9 +1307,7 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
             <h1 className="text-3xl font-bold">{version.name}</h1>
             <VersionStatusBadge status={version.status} />
           </div>
-          {version.description && (
-            <p className="text-muted-foreground">{version.description}</p>
-          )}
+          {version.description && <p className="text-muted-foreground">{version.description}</p>}
         </div>
         <div className="flex items-center gap-2">
           <VersionActionMenu version={version} />
@@ -1242,7 +1323,9 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
           <div className="grid grid-cols-2 gap-4">
             <div>
               <span className="text-muted-foreground">Mode:</span>{' '}
-              <span>{version.mode === 'RELOCATION_2028' ? 'Relocation 2028' : 'Historical Baseline'}</span>
+              <span>
+                {version.mode === 'RELOCATION_2028' ? 'Relocation 2028' : 'Historical Baseline'}
+              </span>
             </div>
             <div>
               <span className="text-muted-foreground">Created:</span>{' '}
@@ -1339,8 +1422,9 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
                     {version.curriculumPlans.map((plan) => {
                       const isEditing = editingPlanId === plan.id;
                       const canEdit = version.status === 'DRAFT' || version.status === 'READY';
-                      const ibEnabled = plan.curriculumType === 'IB' ? (plan.capacity > 0) : true;
-                      const canToggleIB = plan.curriculumType === 'IB' && canEdit && version.status !== 'LOCKED';
+                      const ibEnabled = plan.curriculumType === 'IB' ? plan.capacity > 0 : true;
+                      const canToggleIB =
+                        plan.curriculumType === 'IB' && canEdit && version.status !== 'LOCKED';
 
                       return (
                         <CurriculumCard
@@ -1411,7 +1495,10 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>Auto-Reinvestment Rules</CardTitle>
-                  <CardDescription>Configure reinvestment cycles for each category. Items are auto-generated based on these rules.</CardDescription>
+                  <CardDescription>
+                    Configure reinvestment cycles for each category. Items are auto-generated based
+                    on these rules.
+                  </CardDescription>
                 </div>
               </div>
             </CardHeader>
@@ -1424,7 +1511,9 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
                   { category: CapexCategory.FURNITURE, label: 'Furniture', defaultCycle: 7 },
                   { category: CapexCategory.VEHICLES, label: 'Vehicles', defaultCycle: 10 },
                 ].map(({ category, label, defaultCycle }) => {
-                  const existingRule = version.capexRules?.find((r: any) => r.category === category);
+                  const existingRule = version.capexRules?.find(
+                    (r: any) => r.category === category
+                  );
                   return (
                     <div key={category} className="border rounded-lg p-4">
                       <div className="flex items-center justify-between">
@@ -1433,12 +1522,20 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
                           {existingRule ? (
                             <div className="mt-2 space-y-1 text-sm text-muted-foreground">
                               <div>Cycle: Every {existingRule.cycleYears} years</div>
-                              <div>Base Cost: {typeof existingRule.baseCost === 'number' ? existingRule.baseCost.toLocaleString('en-US') : String(existingRule.baseCost || 0)} SAR</div>
+                              <div>
+                                Base Cost:{' '}
+                                {typeof existingRule.baseCost === 'number'
+                                  ? existingRule.baseCost.toLocaleString('en-US')
+                                  : String(existingRule.baseCost || 0)}{' '}
+                                SAR
+                              </div>
                               <div>Starting Year: {existingRule.startingYear}</div>
                               <div>Inflation: {existingRule.inflationIndex || 'Global CPI'}</div>
                             </div>
                           ) : (
-                            <p className="mt-2 text-sm text-muted-foreground">No rule configured (default: {defaultCycle} years)</p>
+                            <p className="mt-2 text-sm text-muted-foreground">
+                              No rule configured (default: {defaultCycle} years)
+                            </p>
                           )}
                         </div>
                         <div className="flex gap-2">
@@ -1451,7 +1548,10 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
                                 id: existingRule?.id,
                                 category,
                                 cycleYears: existingRule?.cycleYears || defaultCycle,
-                                baseCost: typeof existingRule?.baseCost === 'number' ? existingRule.baseCost : parseFloat(String(existingRule?.baseCost || 0)),
+                                baseCost:
+                                  typeof existingRule?.baseCost === 'number'
+                                    ? existingRule.baseCost
+                                    : parseFloat(String(existingRule?.baseCost || 0)),
                                 startingYear: existingRule?.startingYear || 2028,
                                 inflationIndex: existingRule?.inflationIndex || null,
                               });
@@ -1490,12 +1590,22 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
                 <CapexTimelineChart
                   data={version.capexItems.map((item) => ({
                     year: item.year,
-                    amount: typeof item.amount === 'number' ? item.amount : parseFloat(String(item.amount || 0)),
-                    category: item.category === CapexCategory.BUILDING ? 'Building' :
-                             item.category === CapexCategory.TECHNOLOGY ? 'Technology' :
-                             item.category === CapexCategory.EQUIPMENT ? 'Equipment' :
-                             item.category === CapexCategory.FURNITURE ? 'Furniture' :
-                             item.category === CapexCategory.VEHICLES ? 'Vehicles' : 'Other',
+                    amount:
+                      typeof item.amount === 'number'
+                        ? item.amount
+                        : parseFloat(String(item.amount || 0)),
+                    category:
+                      item.category === CapexCategory.BUILDING
+                        ? 'Building'
+                        : item.category === CapexCategory.TECHNOLOGY
+                          ? 'Technology'
+                          : item.category === CapexCategory.EQUIPMENT
+                            ? 'Equipment'
+                            : item.category === CapexCategory.FURNITURE
+                              ? 'Furniture'
+                              : item.category === CapexCategory.VEHICLES
+                                ? 'Vehicles'
+                                : 'Other',
                   }))}
                 />
               </CardContent>
@@ -1508,7 +1618,9 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>Capex Items Summary</CardTitle>
-                  <CardDescription>All capex items (auto-generated from rules + manual entries)</CardDescription>
+                  <CardDescription>
+                    All capex items (auto-generated from rules + manual entries)
+                  </CardDescription>
                 </div>
                 <Button
                   variant="outline"
@@ -1562,11 +1674,13 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
                                   : String(item.amount || 0)}
                               </td>
                               <td className="px-4 py-2">
-                                <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${
-                                  isAutoGenerated
-                                    ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
-                                    : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
-                                }`}>
+                                <span
+                                  className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${
+                                    isAutoGenerated
+                                      ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                                      : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
+                                  }`}
+                                >
                                   {isAutoGenerated ? 'Auto' : 'Manual'}
                                 </span>
                               </td>
@@ -1585,7 +1699,10 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
                                           id: item.id,
                                           year: item.year,
                                           category: item.category,
-                                          amount: typeof item.amount === 'number' ? item.amount : parseFloat(String(item.amount || 0)),
+                                          amount:
+                                            typeof item.amount === 'number'
+                                              ? item.amount
+                                              : parseFloat(String(item.amount || 0)),
                                           description: item.description || '',
                                         });
                                       }}
@@ -1609,11 +1726,16 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
                     </tbody>
                     <tfoot className="bg-muted/50 font-semibold">
                       <tr>
-                        <td colSpan={2} className="px-4 py-2">Total</td>
+                        <td colSpan={2} className="px-4 py-2">
+                          Total
+                        </td>
                         <td className="px-4 py-2 text-right font-mono">
                           {version.capexItems
                             .reduce((sum, item) => {
-                              const amount = typeof item.amount === 'number' ? item.amount : parseFloat(String(item.amount || 0));
+                              const amount =
+                                typeof item.amount === 'number'
+                                  ? item.amount
+                                  : parseFloat(String(item.amount || 0));
                               return sum + amount;
                             }, 0)
                             .toLocaleString('en-US')}
@@ -1627,7 +1749,8 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
                 <div className="text-center py-8 space-y-4">
                   <p className="text-muted-foreground">No capex items yet.</p>
                   <p className="text-sm text-muted-foreground">
-                    Configure auto-reinvestment rules above to generate items automatically, or add manual items.
+                    Configure auto-reinvestment rules above to generate items automatically, or add
+                    manual items.
                   </p>
                 </div>
               )}
@@ -1635,19 +1758,25 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
           </Card>
 
           {/* Edit Rule Dialog */}
-          <Dialog open={editingCapexRuleId !== null} onOpenChange={(open) => {
-            if (!open) {
-              setEditingCapexRuleId(null);
-              setCapexRuleFormData(null);
-            }
-          }}>
+          <Dialog
+            open={editingCapexRuleId !== null}
+            onOpenChange={(open) => {
+              if (!open) {
+                setEditingCapexRuleId(null);
+                setCapexRuleFormData(null);
+              }
+            }}
+          >
             <DialogContent className="sm:max-w-[500px]">
               <DialogHeader>
                 <DialogTitle>
-                  {capexRuleFormData?.id === 'new' || !capexRuleFormData?.id ? 'Configure Capex Rule' : 'Edit Capex Rule'}
+                  {capexRuleFormData?.id === 'new' || !capexRuleFormData?.id
+                    ? 'Configure Capex Rule'
+                    : 'Edit Capex Rule'}
                 </DialogTitle>
                 <DialogDescription>
-                  Configure auto-reinvestment cycle for this category. Items will be auto-generated based on this rule.
+                  Configure auto-reinvestment cycle for this category. Items will be auto-generated
+                  based on this rule.
                 </DialogDescription>
               </DialogHeader>
               {capexRuleFormData && (
@@ -1662,7 +1791,9 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
                           category: value as CapexCategory,
                         })
                       }
-                      disabled={capexRuleFormData.id !== 'new' && capexRuleFormData.id !== undefined}
+                      disabled={
+                        capexRuleFormData.id !== 'new' && capexRuleFormData.id !== undefined
+                      }
                     >
                       <SelectTrigger id="capex-rule-category">
                         <SelectValue />
@@ -1772,10 +1903,7 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
                 >
                   Cancel
                 </Button>
-                <Button
-                  onClick={handleCapexRuleSave}
-                  disabled={saving || !capexRuleFormData}
-                >
+                <Button onClick={handleCapexRuleSave} disabled={saving || !capexRuleFormData}>
                   <Save className="h-4 w-4 mr-2" />
                   {saving ? 'Saving...' : 'Save Rule'}
                 </Button>
@@ -1784,19 +1912,23 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
           </Dialog>
 
           {/* Edit Manual Capex Item Dialog */}
-          <Dialog open={editingCapexId !== null} onOpenChange={(open) => {
-            if (!open) {
-              setEditingCapexId(null);
-              setCapexFormData(null);
-            }
-          }}>
+          <Dialog
+            open={editingCapexId !== null}
+            onOpenChange={(open) => {
+              if (!open) {
+                setEditingCapexId(null);
+                setCapexFormData(null);
+              }
+            }}
+          >
             <DialogContent className="sm:max-w-[500px]">
               <DialogHeader>
                 <DialogTitle>
                   {capexFormData?.id === 'new' ? 'Add Manual Capex Item' : 'Edit Manual Capex Item'}
                 </DialogTitle>
                 <DialogDescription>
-                  Add a manual capital expenditure item for a specific year. This is independent of auto-reinvestment rules.
+                  Add a manual capital expenditure item for a specific year. This is independent of
+                  auto-reinvestment rules.
                 </DialogDescription>
               </DialogHeader>
               {capexFormData && (
@@ -1891,10 +2023,7 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
                 >
                   Cancel
                 </Button>
-                <Button
-                  onClick={handleCapexSave}
-                  disabled={saving || !capexFormData}
-                >
+                <Button onClick={handleCapexSave} disabled={saving || !capexFormData}>
                   <Save className="h-4 w-4 mr-2" />
                   {saving ? 'Saving...' : capexFormData?.id === 'new' ? 'Create' : 'Save'}
                 </Button>
@@ -1909,7 +2038,9 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>Opex Planning</CardTitle>
-                  <CardDescription>Operational expenditure as % of revenue or fixed amounts</CardDescription>
+                  <CardDescription>
+                    Operational expenditure as % of revenue or fixed amounts
+                  </CardDescription>
                 </div>
                 <Button
                   variant="outline"
@@ -1931,168 +2062,176 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
               </div>
             </CardHeader>
             <CardContent>
-              {(version.opexSubAccounts && version.opexSubAccounts.length > 0) || editingOpexId === 'new' ? (
+              {(version.opexSubAccounts && version.opexSubAccounts.length > 0) ||
+              editingOpexId === 'new' ? (
                 <div className="space-y-3">
-                  {version.opexSubAccounts && version.opexSubAccounts.map((account) => (
-                    <div key={account.id}>
-                      {editingOpexId === account.id && opexFormData ? (
-                        // Edit mode
-                        <div className="border rounded-lg p-4 space-y-4 bg-muted/50">
-                          <div className="space-y-3">
-                            <div>
-                              <Label htmlFor={`opex-name-${account.id}`}>Sub-Account Name</Label>
-                              <Input
-                                id={`opex-name-${account.id}`}
-                                type="text"
-                                value={opexFormData.subAccountName}
-                                onChange={(e) =>
-                                  setOpexFormData({ ...opexFormData, subAccountName: e.target.value })
-                                }
-                                placeholder="e.g., Marketing, Admin, Utilities"
-                              />
-                            </div>
-
-                            <div className="flex items-center space-x-2">
-                              <Checkbox
-                                id={`opex-fixed-${account.id}`}
-                                checked={opexFormData.isFixed}
-                                onCheckedChange={(checked) =>
-                                  setOpexFormData({ ...opexFormData, isFixed: !!checked })
-                                }
-                              />
-                              <Label htmlFor={`opex-fixed-${account.id}`}>
-                                Use fixed amount (instead of % of revenue)
-                              </Label>
-                            </div>
-
-                            {opexFormData.isFixed ? (
+                  {version.opexSubAccounts &&
+                    version.opexSubAccounts.map((account) => (
+                      <div key={account.id}>
+                        {editingOpexId === account.id && opexFormData ? (
+                          // Edit mode
+                          <div className="border rounded-lg p-4 space-y-4 bg-muted/50">
+                            <div className="space-y-3">
                               <div>
-                                <Label htmlFor={`opex-amount-${account.id}`}>Fixed Amount (SAR)</Label>
+                                <Label htmlFor={`opex-name-${account.id}`}>Sub-Account Name</Label>
                                 <Input
-                                  id={`opex-amount-${account.id}`}
-                                  type="number"
-                                  min="0"
-                                  step="1000"
-                                  value={opexFormData.fixedAmount || 0}
+                                  id={`opex-name-${account.id}`}
+                                  type="text"
+                                  value={opexFormData.subAccountName}
                                   onChange={(e) =>
                                     setOpexFormData({
                                       ...opexFormData,
-                                      fixedAmount: parseFloat(e.target.value) || 0,
+                                      subAccountName: e.target.value,
                                     })
                                   }
-                                  placeholder="Enter fixed amount"
+                                  placeholder="e.g., Marketing, Admin, Utilities"
                                 />
                               </div>
-                            ) : (
-                              <div>
-                                <Label htmlFor={`opex-percent-${account.id}`}>
-                                  Percentage of Revenue (%)
+
+                              <div className="flex items-center space-x-2">
+                                <Checkbox
+                                  id={`opex-fixed-${account.id}`}
+                                  checked={opexFormData.isFixed}
+                                  onCheckedChange={(checked) =>
+                                    setOpexFormData({ ...opexFormData, isFixed: !!checked })
+                                  }
+                                />
+                                <Label htmlFor={`opex-fixed-${account.id}`}>
+                                  Use fixed amount (instead of % of revenue)
                                 </Label>
-                                <Input
-                                  id={`opex-percent-${account.id}`}
-                                  type="number"
-                                  min="0"
-                                  max="100"
-                                  step="0.1"
-                                  value={opexFormData.percentOfRevenue || 0}
-                                  onChange={(e) =>
-                                    setOpexFormData({
-                                      ...opexFormData,
-                                      percentOfRevenue: parseFloat(e.target.value) || 0,
-                                    })
-                                  }
-                                  placeholder="Enter percentage"
-                                />
-                                <p className="text-sm text-muted-foreground mt-1">
-                                  This percentage will be applied to the annual revenue.
-                                </p>
                               </div>
-                            )}
-                          </div>
 
-                          <div className="flex gap-2">
-                            <Button
-                              variant="default"
-                              size="sm"
-                              onClick={() => handleOpexSave(account.id)}
-                              disabled={saving}
-                            >
-                              <Save className="h-4 w-4 mr-2" />
-                              {saving ? 'Saving...' : 'Save'}
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setEditingOpexId(null);
-                                setOpexFormData(null);
-                              }}
-                              disabled={saving}
-                            >
-                              <X className="h-4 w-4 mr-2" />
-                              Cancel
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        // View mode
-                        <div className="flex justify-between items-center border rounded-lg p-3 hover:bg-muted/50 transition-colors">
-                          <div className="flex-1">
-                            <div className="font-medium">{account.subAccountName}</div>
-                            <div className="text-sm text-muted-foreground">
-                              {account.isFixed ? (
-                                <span>
-                                  Fixed: {typeof account.fixedAmount === 'number'
-                                    ? account.fixedAmount.toLocaleString('en-US')
-                                    : String(account.fixedAmount || 0)}{' '}
-                                  SAR/year
-                                </span>
+                              {opexFormData.isFixed ? (
+                                <div>
+                                  <Label htmlFor={`opex-amount-${account.id}`}>
+                                    Fixed Amount (SAR)
+                                  </Label>
+                                  <Input
+                                    id={`opex-amount-${account.id}`}
+                                    type="number"
+                                    min="0"
+                                    step="1000"
+                                    value={opexFormData.fixedAmount || 0}
+                                    onChange={(e) =>
+                                      setOpexFormData({
+                                        ...opexFormData,
+                                        fixedAmount: parseFloat(e.target.value) || 0,
+                                      })
+                                    }
+                                    placeholder="Enter fixed amount"
+                                  />
+                                </div>
                               ) : (
-                                <span>
-                                  {typeof account.percentOfRevenue === 'number'
-                                    ? account.percentOfRevenue.toFixed(2)
-                                    : String(account.percentOfRevenue || 0)}
-                                  % of revenue
-                                </span>
+                                <div>
+                                  <Label htmlFor={`opex-percent-${account.id}`}>
+                                    Percentage of Revenue (%)
+                                  </Label>
+                                  <Input
+                                    id={`opex-percent-${account.id}`}
+                                    type="number"
+                                    min="0"
+                                    max="100"
+                                    step="0.1"
+                                    value={opexFormData.percentOfRevenue || 0}
+                                    onChange={(e) =>
+                                      setOpexFormData({
+                                        ...opexFormData,
+                                        percentOfRevenue: parseFloat(e.target.value) || 0,
+                                      })
+                                    }
+                                    placeholder="Enter percentage"
+                                  />
+                                  <p className="text-sm text-muted-foreground mt-1">
+                                    This percentage will be applied to the annual revenue.
+                                  </p>
+                                </div>
                               )}
                             </div>
+
+                            <div className="flex gap-2">
+                              <Button
+                                variant="default"
+                                size="sm"
+                                onClick={() => handleOpexSave(account.id)}
+                                disabled={saving}
+                              >
+                                <Save className="h-4 w-4 mr-2" />
+                                {saving ? 'Saving...' : 'Save'}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setEditingOpexId(null);
+                                  setOpexFormData(null);
+                                }}
+                                disabled={saving}
+                              >
+                                <X className="h-4 w-4 mr-2" />
+                                Cancel
+                              </Button>
+                            </div>
                           </div>
-                          <div className="flex gap-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setEditingOpexId(account.id);
-                                setOpexFormData({
-                                  id: account.id,
-                                  subAccountName: account.subAccountName,
-                                  percentOfRevenue:
-                                    typeof account.percentOfRevenue === 'number'
-                                      ? account.percentOfRevenue
-                                      : parseFloat(String(account.percentOfRevenue || 0)),
-                                  isFixed: account.isFixed,
-                                  fixedAmount:
-                                    typeof account.fixedAmount === 'number'
-                                      ? account.fixedAmount
-                                      : parseFloat(String(account.fixedAmount || 0)),
-                                });
-                              }}
-                            >
-                              <Edit2 className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleOpexDelete(account.id)}
-                              disabled={saving}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
+                        ) : (
+                          // View mode
+                          <div className="flex justify-between items-center border rounded-lg p-3 hover:bg-muted/50 transition-colors">
+                            <div className="flex-1">
+                              <div className="font-medium">{account.subAccountName}</div>
+                              <div className="text-sm text-muted-foreground">
+                                {account.isFixed ? (
+                                  <span>
+                                    Fixed:{' '}
+                                    {typeof account.fixedAmount === 'number'
+                                      ? account.fixedAmount.toLocaleString('en-US')
+                                      : String(account.fixedAmount || 0)}{' '}
+                                    SAR/year
+                                  </span>
+                                ) : (
+                                  <span>
+                                    {typeof account.percentOfRevenue === 'number'
+                                      ? account.percentOfRevenue.toFixed(2)
+                                      : String(account.percentOfRevenue || 0)}
+                                    % of revenue
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setEditingOpexId(account.id);
+                                  setOpexFormData({
+                                    id: account.id,
+                                    subAccountName: account.subAccountName,
+                                    percentOfRevenue:
+                                      typeof account.percentOfRevenue === 'number'
+                                        ? account.percentOfRevenue
+                                        : parseFloat(String(account.percentOfRevenue || 0)),
+                                    isFixed: account.isFixed,
+                                    fixedAmount:
+                                      typeof account.fixedAmount === 'number'
+                                        ? account.fixedAmount
+                                        : parseFloat(String(account.fixedAmount || 0)),
+                                  });
+                                }}
+                              >
+                                <Edit2 className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleOpexDelete(account.id)}
+                                disabled={saving}
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                        )}
+                      </div>
+                    ))}
 
                   {/* New account form */}
                   {editingOpexId === 'new' && opexFormData && (
@@ -2197,7 +2336,8 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
                 <div className="text-center py-8 space-y-4">
                   <p className="text-muted-foreground">No opex sub-accounts configured yet.</p>
                   <p className="text-sm text-muted-foreground">
-                    Add sub-accounts to track operational expenses as either a percentage of revenue or fixed amounts.
+                    Add sub-accounts to track operational expenses as either a percentage of revenue
+                    or fixed amounts.
                   </p>
                 </div>
               )}
@@ -2213,8 +2353,9 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
             </CardHeader>
             <CardContent>
               <p className="text-muted-foreground mb-4">
-                Tuition simulation tools will be available here. This allows you to adjust base tuition per curriculum 
-                and see the real-time impact on revenue, EBITDA, and rent load %.
+                Tuition simulation tools will be available here. This allows you to adjust base
+                tuition per curriculum and see the real-time impact on revenue, EBITDA, and rent
+                load %.
               </p>
               <Button
                 variant="outline"
@@ -2232,9 +2373,7 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
           ) : (
             <Card>
               <CardContent className="py-12">
-                <p className="text-muted-foreground text-center">
-                  Loading financial statements...
-                </p>
+                <p className="text-muted-foreground text-center">Loading financial statements...</p>
               </CardContent>
             </Card>
           )}
@@ -2248,8 +2387,8 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
             </CardHeader>
             <CardContent>
               <p className="text-muted-foreground mb-4">
-                Report generation will be available here. You can generate Executive Summary, Detailed Financial, 
-                or Board Presentation reports in PDF, Excel, or CSV format.
+                Report generation will be available here. You can generate Executive Summary,
+                Detailed Financial, or Board Presentation reports in PDF, Excel, or CSV format.
               </p>
               <Button
                 variant="outline"
@@ -2264,4 +2403,3 @@ export function VersionDetail({ versionId, version: initialVersion }: VersionDet
     </div>
   );
 }
-

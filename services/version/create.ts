@@ -86,11 +86,11 @@ export type VersionWithRelations = Version & {
 
 /**
  * Create a new version with all relationships
- * 
+ *
  * @param data - CreateVersionInput with version data, curriculum plans, and rent plan
  * @param userId - ID of user creating the version
  * @returns Result containing created version with all relationships
- * 
+ *
  * @example
  * const result = await createVersion({
  *   name: 'Version 1',
@@ -111,7 +111,7 @@ export async function createVersion(
     }
 
     // IB is optional - check for duplicates if present
-    const ibCount = curriculumTypes.filter(t => t === 'IB').length;
+    const ibCount = curriculumTypes.filter((t) => t === 'IB').length;
     if (ibCount > 1) {
       return error('IB curriculum plan can only appear once', 'VALIDATION_ERROR');
     }
@@ -162,6 +162,54 @@ export async function createVersion(
           versionId: newVersion.id,
           rentModel: data.rentPlan.rentModel,
           parameters: data.rentPlan.parameters as Prisma.InputJsonValue,
+        },
+      });
+
+      // 4. Create balance sheet settings with defaults or based on historical data
+      let startingCash = new Prisma.Decimal(5_000_000); // Default: 5M SAR
+      let openingEquity = new Prisma.Decimal(55_000_000); // Default: 55M SAR
+
+      // If basedOnId is provided, try to get historical data from base version
+      if (data.basedOnId) {
+        const baseVersion = await tx.versions.findUnique({
+          where: { id: data.basedOnId },
+          include: {
+            historical_actuals: {
+              where: { year: 2024 },
+              orderBy: { year: 'desc' },
+              take: 1,
+            },
+          },
+        });
+
+        // Use 2024 ending values as starting values for new version
+        if (baseVersion?.historical_actuals && baseVersion.historical_actuals.length > 0) {
+          const historical2024 = baseVersion.historical_actuals[0];
+          if (historical2024) {
+            startingCash = historical2024.cashOnHandAndInBank;
+            openingEquity = historical2024.equity;
+          }
+        }
+      } else {
+        // Check if current version has historical data (for newly created versions with imported data)
+        const currentHistorical = await tx.historical_actuals.findFirst({
+          where: {
+            versionId: newVersion.id,
+            year: 2024,
+          },
+        });
+
+        if (currentHistorical) {
+          startingCash = currentHistorical.cashOnHandAndInBank;
+          openingEquity = currentHistorical.equity;
+        }
+      }
+
+      await tx.balance_sheet_settings.create({
+        data: {
+          versionId: newVersion.id,
+          startingCash,
+          openingEquity,
         },
       });
 
@@ -233,4 +281,3 @@ export async function createVersion(
     return error('Failed to create version', 'INTERNAL_ERROR');
   }
 }
-

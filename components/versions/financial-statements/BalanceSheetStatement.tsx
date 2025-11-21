@@ -1,17 +1,17 @@
 /**
  * Balance Sheet Statement Component
- * 
+ *
  * Displays 30-year Balance Sheet with:
  * - Assets: Cash, AR, Fixed Assets
  * - Liabilities: AP, Deferred Income, Accrued Expenses, Short-term Debt
  * - Equity: Opening Equity + Retained Earnings
  * - Balance Check: Assets = Liabilities + Equity
- * 
+ *
  * Features:
  * - Shows theoretical vs. actual cash (balancing mechanism)
  * - Highlights automatic debt creation
  * - Balance check indicator
- * 
+ *
  * Reference: FINANCIAL_STATEMENTS_IMPLEMENTATION_PLAN.md (lines 1790-1805)
  */
 
@@ -19,7 +19,7 @@
 
 import { useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { 
+import {
   Table,
   TableBody,
   TableCell,
@@ -29,7 +29,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
-import type { YearProjection } from '@/lib/calculations/financial/circular-solver';
+import type { YearlyProjection as YearProjection } from '@/lib/calculations/financial/projection';
 import Decimal from 'decimal.js';
 
 export interface BalanceSheetStatementProps {
@@ -70,6 +70,13 @@ function toDecimal(value: any): Decimal {
 }
 
 /**
+ * Safe get Decimal - returns Decimal(0) if undefined
+ */
+function safeDecimal(value: Decimal | undefined): Decimal {
+  return value ?? new Decimal(0);
+}
+
+/**
  * Balance Sheet Statement Component
  *
  * @example
@@ -81,15 +88,19 @@ export function BalanceSheetStatement(props: BalanceSheetStatementProps): JSX.El
   // Create a map of historical data by year for quick lookup
   const historicalMap = useMemo(() => {
     const map = new Map<number, any>();
-    historicalData.forEach(h => {
+    historicalData.forEach((h) => {
       map.set(h.year, h);
     });
     return map;
   }, [historicalData]);
 
-  // Check if all years balance
+  // Check if all years balance (with defensive null checks)
   const allBalanced = useMemo(() => {
     return projection.every((year) => {
+      // If Balance Sheet fields are not populated, skip balance check
+      if (!year.totalAssets || !year.totalLiabilities || !year.totalEquity) {
+        return true; // Can't check balance without data
+      }
       const balance = year.totalAssets.minus(year.totalLiabilities).minus(year.totalEquity);
       return balance.abs().lessThan(0.01); // Allow 0.01 SAR tolerance (halala precision)
     });
@@ -105,7 +116,7 @@ export function BalanceSheetStatement(props: BalanceSheetStatementProps): JSX.El
               30-year balance sheet (2023-2052) with automatic debt creation when cash &lt; minimum
             </CardDescription>
           </div>
-          <Badge 
+          <Badge
             variant={allBalanced ? 'default' : 'destructive'}
             className="flex items-center gap-2"
           >
@@ -128,10 +139,18 @@ export function BalanceSheetStatement(props: BalanceSheetStatementProps): JSX.El
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[80px] sticky left-0 bg-background-secondary z-10">Year</TableHead>
-                <TableHead className="text-right" colSpan={4}>Assets</TableHead>
-                <TableHead className="text-right" colSpan={5}>Liabilities</TableHead>
-                <TableHead className="text-right" colSpan={2}>Equity</TableHead>
+                <TableHead className="w-[80px] sticky left-0 bg-background-secondary z-10">
+                  Year
+                </TableHead>
+                <TableHead className="text-right" colSpan={4}>
+                  Assets
+                </TableHead>
+                <TableHead className="text-right" colSpan={5}>
+                  Liabilities
+                </TableHead>
+                <TableHead className="text-right" colSpan={2}>
+                  Equity
+                </TableHead>
                 <TableHead className="text-right">Balance</TableHead>
               </TableRow>
               <TableRow className="bg-background-tertiary">
@@ -160,34 +179,62 @@ export function BalanceSheetStatement(props: BalanceSheetStatementProps): JSX.El
                 const historical = historicalMap.get(year.year);
                 const isHistorical = historical !== undefined;
 
-                // Use historical data if available, otherwise use projection
-                const cash = historical ? toDecimal(historical.cashOnHandAndInBank) : year.cash;
-                const accountsReceivable = historical ? toDecimal(historical.accountsReceivableAndOthers) : year.accountsReceivable;
+                // Use historical data if available, otherwise use projection (with safe defaults for optional fields)
+                const cash = historical
+                  ? toDecimal(historical.cashOnHandAndInBank)
+                  : safeDecimal(year.cash);
+                const accountsReceivable = historical
+                  ? toDecimal(historical.accountsReceivableAndOthers)
+                  : safeDecimal(year.accountsReceivable);
                 const fixedAssets = historical
-                  ? toDecimal(historical.tangibleIntangibleAssetsGross).minus(toDecimal(historical.accumulatedDepreciationAmort))
-                  : year.fixedAssets;
-                const totalAssets = historical ? toDecimal(historical.totalAssets) : year.totalAssets;
+                  ? toDecimal(historical.tangibleIntangibleAssetsGross).minus(
+                      toDecimal(historical.accumulatedDepreciationAmort)
+                    )
+                  : safeDecimal(year.fixedAssets);
+                const totalAssets = historical
+                  ? toDecimal(historical.totalAssets)
+                  : safeDecimal(year.totalAssets);
 
-                const accountsPayable = historical ? toDecimal(historical.accountsPayable) : year.accountsPayable;
-                const deferredIncome = historical ? toDecimal(historical.deferredIncome) : year.deferredIncome;
-                const accruedExpenses = historical ? toDecimal(historical.provisions) : year.accruedExpenses;
-                const shortTermDebt = historical ? new Decimal(0) : year.shortTermDebt; // No debt in historical years
-                const totalLiabilities = historical ? toDecimal(historical.totalLiabilities) : year.totalLiabilities;
+                const accountsPayable = historical
+                  ? toDecimal(historical.accountsPayable)
+                  : safeDecimal(year.accountsPayable);
+                const deferredIncome = historical
+                  ? toDecimal(historical.deferredIncome)
+                  : safeDecimal(year.deferredIncome);
+                const accruedExpenses = historical
+                  ? toDecimal(historical.provisions)
+                  : safeDecimal(year.accruedExpenses);
+                const shortTermDebt = historical ? new Decimal(0) : safeDecimal(year.shortTermDebt); // No debt in historical years
+                const totalLiabilities = historical
+                  ? toDecimal(historical.totalLiabilities)
+                  : safeDecimal(year.totalLiabilities);
 
-                const retainedEarnings = historical ? toDecimal(historical.retainedEarnings) : year.retainedEarnings;
-                const totalEquity = historical ? toDecimal(historical.equity) : year.totalEquity;
+                const retainedEarnings = historical
+                  ? toDecimal(historical.retainedEarnings)
+                  : safeDecimal(year.retainedEarnings);
+                const totalEquity = historical
+                  ? toDecimal(historical.equity)
+                  : safeDecimal(year.totalEquity);
 
                 const balanceCheck = totalAssets.minus(totalLiabilities).minus(totalEquity);
                 const isBalanced = balanceCheck.abs().lessThan(0.01);
                 const hasDebt = shortTermDebt.greaterThan(0);
-                const cashBelowTheoretical = !isHistorical && year.cash.greaterThan(year.theoreticalCash);
+                const theoreticalCash = safeDecimal(year.theoreticalCash);
+                const cashBelowTheoretical = !isHistorical && cash.lessThan(theoreticalCash);
 
                 return (
-                  <TableRow key={year.year} className={isHistorical ? 'bg-blue-50/50 dark:bg-blue-950/20' : ''}>
-                    <TableCell className={`font-medium sticky left-0 z-10 ${isHistorical ? 'bg-blue-50/50 dark:bg-blue-950/20' : 'bg-background-secondary'}`}>
+                  <TableRow
+                    key={year.year}
+                    className={isHistorical ? 'bg-blue-50/50 dark:bg-blue-950/20' : ''}
+                  >
+                    <TableCell
+                      className={`font-medium sticky left-0 z-10 ${isHistorical ? 'bg-blue-50/50 dark:bg-blue-950/20' : 'bg-background-secondary'}`}
+                    >
                       {year.year}
                       {isHistorical && (
-                        <Badge variant="secondary" className="ml-2 text-xs">Actual</Badge>
+                        <Badge variant="secondary" className="ml-2 text-xs">
+                          Actual
+                        </Badge>
                       )}
                     </TableCell>
                     {/* Assets */}
@@ -196,7 +243,7 @@ export function BalanceSheetStatement(props: BalanceSheetStatementProps): JSX.El
                         <span>{formatCurrency(cash)}</span>
                         {cashBelowTheoretical && (
                           <span className="text-xs text-text-tertiary">
-                            (Theoretical: {formatCurrency(year.theoreticalCash)})
+                            (Theoretical: {formatCurrency(theoreticalCash)})
                           </span>
                         )}
                       </div>
@@ -220,7 +267,9 @@ export function BalanceSheetStatement(props: BalanceSheetStatementProps): JSX.El
                     <TableCell className="text-right font-mono text-sm">
                       {formatCurrency(accruedExpenses)}
                     </TableCell>
-                    <TableCell className={`text-right font-mono text-sm ${hasDebt ? 'font-semibold text-accent-red' : ''}`}>
+                    <TableCell
+                      className={`text-right font-mono text-sm ${hasDebt ? 'font-semibold text-accent-red' : ''}`}
+                    >
                       {hasDebt ? (
                         <div className="flex flex-col">
                           <span>{formatCurrency(shortTermDebt)}</span>
@@ -243,7 +292,9 @@ export function BalanceSheetStatement(props: BalanceSheetStatementProps): JSX.El
                       {formatCurrency(totalEquity)}
                     </TableCell>
                     {/* Balance Check */}
-                    <TableCell className={`text-right font-mono text-sm ${isBalanced ? 'text-accent-green' : 'text-accent-red'}`}>
+                    <TableCell
+                      className={`text-right font-mono text-sm ${isBalanced ? 'text-accent-green' : 'text-accent-red'}`}
+                    >
                       {isBalanced ? (
                         <CheckCircle2 className="h-4 w-4 inline" />
                       ) : (
@@ -266,8 +317,9 @@ export function BalanceSheetStatement(props: BalanceSheetStatementProps): JSX.El
             <span className="font-semibold">Formula:</span> Assets = Liabilities + Equity
           </p>
           <p className="text-sm text-text-secondary">
-            <span className="font-semibold">Balancing Mechanism:</span> When theoretical cash falls below minimum balance (1M SAR), 
-            short-term debt is automatically created to maintain the minimum. This ensures the school always has sufficient working capital.
+            <span className="font-semibold">Balancing Mechanism:</span> When theoretical cash falls
+            below minimum balance (1M SAR), short-term debt is automatically created to maintain the
+            minimum. This ensures the school always has sufficient working capital.
           </p>
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="text-xs">
@@ -285,4 +337,3 @@ export function BalanceSheetStatement(props: BalanceSheetStatementProps): JSX.El
     </Card>
   );
 }
-

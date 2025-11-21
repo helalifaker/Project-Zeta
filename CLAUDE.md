@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Project Zeta is a sophisticated financial planning application for school relocation assessment (2028+), providing 30-year financial projections (2023-2052) with emphasis on long-term lease evaluation and multiple rent models.
 
 **Tech Stack:**
+
 - Next.js 15 (App Router) + React 18 + TypeScript 5.3+
 - PostgreSQL 15+ (via Supabase) + Prisma 5.x ORM
 - Tailwind CSS v3 + shadcn/ui components
@@ -81,6 +82,7 @@ The core calculation engine (`lib/calculations/financial/projection.ts`) orchest
 **Purpose:** Resolves circular dependencies in financial statements (Interest → Debt → Cash → Net Income → Interest)
 
 **Key Features:**
+
 - Iterative solver with convergence check (typically 1-4 iterations)
 - Performance: <100ms for 30-year projection
 - Handles historical actuals integration for 2023-2024
@@ -114,10 +116,9 @@ Heavy calculations run in Web Workers to avoid blocking UI:
 **Location:** `workers/financial-engine.worker.ts`
 
 **Usage Pattern:**
+
 ```typescript
-const worker = new Worker(
-  new URL('@/workers/financial-engine.worker.ts', import.meta.url)
-);
+const worker = new Worker(new URL('@/workers/financial-engine.worker.ts', import.meta.url));
 worker.postMessage({ type: 'FULL_PROJECTION', params });
 worker.onmessage = (event) => setResult(event.data);
 ```
@@ -127,6 +128,7 @@ worker.onmessage = (event) => setResult(event.data);
 ## Database Schema Key Points
 
 **Core Models:**
+
 - `versions` - Financial scenarios (RELOCATION_2028 or HISTORICAL_BASELINE mode)
 - `curriculum_plans` - FR/IB enrollment and tuition settings (linked to version)
 - `rent_plans` - Rent model configuration (one per version)
@@ -140,12 +142,14 @@ worker.onmessage = (event) => setResult(event.data);
 - `reports` - Generated report metadata
 
 **Important Relationships:**
+
 - Version → Curriculum Plans (1:2, FR + IB required)
 - Version → Rent Plan (1:1)
 - Version → Historical Actuals (1:N, years 2023-2024)
 - Version → Other Revenue Items (1:N, years 2023-2052)
 
 **Key Constraints:**
+
 - `@@unique([versionId, curriculumType])` - One plan per curriculum per version
 - `@@unique([versionId, year])` - One historical record per year per version
 - Enum validation for rent models, curriculum types, version modes, etc.
@@ -205,7 +209,7 @@ const period = getPeriodForYear(year);
 if (period === 'HISTORICAL') {
   // Use historical_actuals data from database
   const historical = await prisma.historical_actuals.findFirst({
-    where: { versionId, year }
+    where: { versionId, year },
   });
   revenue = historical.totalRevenues;
 } else if (period === 'TRANSITION') {
@@ -220,6 +224,7 @@ if (period === 'HISTORICAL') {
 ### Staff Cost Base Year Logic
 
 **CRITICAL:** Staff cost base year depends on version mode:
+
 - `RELOCATION_2028`: baseYear = 2028 (staffCostBase is for year 2028)
 - `HISTORICAL_BASELINE`: baseYear = 2023 (staffCostBase is for year 2023)
 
@@ -230,9 +235,7 @@ This ensures CPI period 0 (no growth) aligns with the baseline year.
 **ALWAYS use Result<T> pattern:**
 
 ```typescript
-type Result<T> =
-  | { success: true; data: T }
-  | { success: false; error: string; code?: string };
+type Result<T> = { success: true; data: T } | { success: false; error: string; code?: string };
 
 // Import from types/result.ts
 import { success, error } from '@/types/result';
@@ -285,11 +288,13 @@ await prisma.audit_logs.create({
 ## Testing Strategy
 
 **Test Files Location:**
+
 - Unit tests: `__tests__/` subdirectories next to source files
 - Integration tests: `app/api/**/__tests__/`
 - E2E tests: Root `tests/` directory (if exists)
 
 **Running Tests:**
+
 ```bash
 # All tests
 npm run test
@@ -305,6 +310,7 @@ npm run test:coverage
 ```
 
 **Key Test Files:**
+
 - `lib/calculations/financial/__tests__/projection.test.ts` - Main projection tests
 - `lib/calculations/financial/__tests__/circular-solver.test.ts` - Solver validation
 - `app/api/reports/__tests__/` - Report generation tests
@@ -409,3 +415,4 @@ See `.env.local.example` for complete list and format.
 - Report generation creates temporary files with expiration timestamps
 - Version locking prevents modifications (enforce via authorization checks)
 - All user roles (ADMIN, PLANNER, VIEWER) have different permission levels
+- I want to call sequential thinking when there is an issue or problem on the code, then you ask the QA to fix it and systematically generate a report of the fix, after this each time, sequential thinking need to review that implementation have been done properly.

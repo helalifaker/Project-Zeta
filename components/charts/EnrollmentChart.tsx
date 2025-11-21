@@ -1,6 +1,6 @@
 /**
  * Enrollment Chart Component
- * Stacked bar chart showing FR vs IB enrollment over time
+ * Stacked bar chart showing FR vs IB enrollment over time with enhanced tooltips
  */
 
 'use client';
@@ -15,6 +15,7 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  TooltipProps,
 } from 'recharts';
 import { chartTheme } from '@/lib/charts/config';
 import { colors } from '@/config/design-system';
@@ -26,6 +27,74 @@ interface EnrollmentChartProps {
     studentsIB?: number;
   }>;
 }
+
+// Custom Tooltip Component with enhanced formatting
+const CustomTooltip = ({ active, payload, label }: TooltipProps<number, string>) => {
+  if (!active || !payload || payload.length === 0) return null;
+
+  const frValue = (payload.find((p) => p.dataKey === 'FR')?.value as number) || 0;
+  const ibValue = (payload.find((p) => p.dataKey === 'IB')?.value as number) || 0;
+  const total = frValue + ibValue;
+
+  return (
+    <div
+      className="rounded-lg border bg-card p-3 shadow-lg"
+      style={{
+        backgroundColor: colors.background.secondary,
+        borderColor: colors.background.tertiary,
+      }}
+    >
+      <p className="text-sm font-semibold mb-2" style={{ color: colors.text.primary }}>
+        Year {label}
+      </p>
+      <div className="space-y-1">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: colors.accent.blue }} />
+            <span className="text-xs" style={{ color: colors.text.secondary }}>
+              French (FR):
+            </span>
+          </div>
+          <span className="text-xs font-semibold" style={{ color: colors.text.primary }}>
+            {frValue.toLocaleString()}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <div
+              className="w-3 h-3 rounded-full"
+              style={{ backgroundColor: colors.accent.green }}
+            />
+            <span className="text-xs" style={{ color: colors.text.secondary }}>
+              IB:
+            </span>
+          </div>
+          <span className="text-xs font-semibold" style={{ color: colors.text.primary }}>
+            {ibValue.toLocaleString()}
+          </span>
+        </div>
+        <div className="pt-2 mt-2 border-t" style={{ borderColor: colors.background.tertiary }}>
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-xs font-semibold" style={{ color: colors.text.secondary }}>
+              Total Students:
+            </span>
+            <span className="text-xs font-semibold" style={{ color: colors.text.primary }}>
+              {total.toLocaleString()}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-4 mt-1">
+            <span className="text-xs" style={{ color: colors.text.secondary }}>
+              FR Distribution:
+            </span>
+            <span className="text-xs" style={{ color: colors.text.secondary }}>
+              {((frValue / total) * 100).toFixed(1)}%
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 function EnrollmentChartComponent({ data }: EnrollmentChartProps): JSX.Element {
   // Memoize chart data transformation
@@ -46,29 +115,14 @@ function EnrollmentChartComponent({ data }: EnrollmentChartProps): JSX.Element {
         role="img"
         aria-label="Enrollment chart showing French (FR) and IB student enrollment over time"
       >
-        <CartesianGrid
-          strokeDasharray="3 3"
-          stroke={chartTheme.gridColor}
-          opacity={0.3}
-        />
-        <XAxis
-          dataKey="year"
-          stroke={chartTheme.textColor}
-          style={{ fontSize: '12px' }}
-        />
+        <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} opacity={0.3} />
+        <XAxis dataKey="year" stroke={chartTheme.textColor} style={{ fontSize: '12px' }} />
         <YAxis
           stroke={chartTheme.textColor}
           style={{ fontSize: '12px' }}
           label={{ value: 'Students', angle: -90, position: 'insideLeft' }}
         />
-        <Tooltip
-          contentStyle={{
-            backgroundColor: colors.background.secondary,
-            border: `1px solid ${colors.background.tertiary}`,
-            borderRadius: '0.5rem',
-            color: colors.text.primary,
-          }}
-        />
+        <Tooltip content={<CustomTooltip />} />
         <Legend
           wrapperStyle={{
             color: colors.text.primary,
@@ -99,4 +153,3 @@ export const EnrollmentChart = memo(EnrollmentChartComponent, (prevProps, nextPr
 });
 
 EnrollmentChart.displayName = 'EnrollmentChart';
-

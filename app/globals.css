@@ -19,8 +19,14 @@
   input:not(:disabled),
   select:not(:disabled),
   textarea:not(:disabled),
-  [tabindex]:not([tabindex="-1"]) {
+  [tabindex]:not([tabindex='-1']) {
     @apply focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2;
+  }
+
+  /* Tabular numbers for consistent number width */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
   }
 }
 
@@ -127,4 +133,3 @@
     @apply bg-background text-foreground;
   }
 }
-

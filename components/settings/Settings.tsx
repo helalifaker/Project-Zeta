@@ -16,6 +16,7 @@ import type { AdminSettings } from '@/services/admin/settings';
 import type { UserWithMetadata } from '@/services/admin/users';
 import type { AuditLogEntry } from '@/services/admin/audit';
 import type { SystemHealth as SystemHealthType } from '@/services/admin/health';
+import { useRenderLogger } from '@/hooks/use-render-logger';
 
 interface SettingsProps {
   initialSettings?: AdminSettings | null;
@@ -34,26 +35,28 @@ export function Settings({
   initialAuditLogsTotal,
   initialSystemHealth,
 }: SettingsProps) {
-  const {
-    settings,
-    users,
-    auditLogs,
-    systemHealth,
-  } = useSettingsStore();
+  // DIAGNOSTIC: Track render count
+  useRenderLogger('Settings');
+
+  const { settings, users, auditLogs, systemHealth } = useSettingsStore();
 
   const [activeTab, setActiveTab] = useState('settings');
   const [loadedTabs, setLoadedTabs] = useState<string[]>([]);
-  const [isInitialized, setIsInitialized] = useState(false);
   const fetchingRef = useRef<Set<string>>(new Set());
   const settingsFetchedRef = useRef(false);
 
+  // ✅ FIX: Use ref instead of state to prevent infinite loop
+  // State in dependency array that is set by the effect = infinite loop
+  const initializedRef = useRef(false);
+
   // Initialize store with server data (if provided) - only once
   useEffect(() => {
-    if (isInitialized) return;
-    
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+
     const storeState = useSettingsStore.getState();
     const tabsToMark: string[] = [];
-    
+
     if (initialSettings && !storeState.settings) {
       useSettingsStore.setState({ settings: initialSettings });
       tabsToMark.push('settings');
@@ -76,13 +79,18 @@ export function Settings({
       useSettingsStore.setState({ systemHealth: initialSystemHealth });
       tabsToMark.push('health');
     }
-    
+
     if (tabsToMark.length > 0) {
-      setLoadedTabs(prev => [...prev, ...tabsToMark.filter(t => !prev.includes(t))]);
+      setLoadedTabs((prev) => [...prev, ...tabsToMark.filter((t) => !prev.includes(t))]);
     }
-    
-    setIsInitialized(true);
-  }, [isInitialized, initialSettings, initialUsers, initialAuditLogs, initialSystemHealth, initialUsersTotal, initialAuditLogsTotal]);
+  }, [
+    initialSettings,
+    initialUsers,
+    initialAuditLogs,
+    initialSystemHealth,
+    initialUsersTotal,
+    initialAuditLogsTotal,
+  ]);
 
   // Load default tab (settings) on mount if not provided - only once
   useEffect(() => {
@@ -92,7 +100,7 @@ export function Settings({
 
     const currentSettings = useSettingsStore.getState().settings;
     if (currentSettings) {
-      setLoadedTabs(prev => prev.includes('settings') ? prev : [...prev, 'settings']);
+      setLoadedTabs((prev) => (prev.includes('settings') ? prev : [...prev, 'settings']));
       return;
     }
 
@@ -113,23 +121,23 @@ export function Settings({
       numberFormat: '1,000,000',
     };
     useSettingsStore.setState({ settings: defaultSettings });
-    setLoadedTabs(prev => prev.includes('settings') ? prev : [...prev, 'settings']);
+    setLoadedTabs((prev) => (prev.includes('settings') ? prev : [...prev, 'settings']));
 
     // Then fetch real values in background
     console.log('📡 Fetching settings data...');
     const fetchStart = performance.now();
-    
+
     fetch('/api/admin/settings')
-      .then(r => r.json())
-      .then(res => {
+      .then((r) => r.json())
+      .then((res) => {
         const fetchTime = performance.now() - fetchStart;
         console.log(`✅ Settings loaded in ${fetchTime.toFixed(0)}ms`);
-        
+
         if (res.success && res.data) {
           useSettingsStore.setState({ settings: res.data });
         }
       })
-      .catch(error => {
+      .catch((error) => {
         console.error('❌ Failed to fetch settings:', error);
       });
   }, []); // Empty deps - only run once on mount
@@ -151,7 +159,7 @@ export function Settings({
     switch (activeTab) {
       case 'users':
         if (storeState.users.length > 0) {
-          setLoadedTabs(prev => prev.includes('users') ? prev : [...prev, 'users']);
+          setLoadedTabs((prev) => (prev.includes('users') ? prev : [...prev, 'users']));
           return;
         }
         endpoint = '/api/admin/users?page=1&limit=20';
@@ -161,7 +169,7 @@ export function Settings({
         break;
       case 'audit':
         if (storeState.auditLogs.length > 0) {
-          setLoadedTabs(prev => prev.includes('audit') ? prev : [...prev, 'audit']);
+          setLoadedTabs((prev) => (prev.includes('audit') ? prev : [...prev, 'audit']));
           return;
         }
         endpoint = '/api/admin/audit-logs?page=1&limit=20';
@@ -171,7 +179,7 @@ export function Settings({
         break;
       case 'health':
         if (storeState.systemHealth) {
-          setLoadedTabs(prev => prev.includes('health') ? prev : [...prev, 'health']);
+          setLoadedTabs((prev) => (prev.includes('health') ? prev : [...prev, 'health']));
           return;
         }
         endpoint = '/api/admin/health';
@@ -189,8 +197,8 @@ export function Settings({
     fetchingRef.current.add(activeTab);
 
     fetch(endpoint)
-      .then(r => r.json())
-      .then(res => {
+      .then((r) => r.json())
+      .then((res) => {
         const fetchTime = performance.now() - fetchStart;
         console.log(`✅ ${dataKey} loaded in ${fetchTime.toFixed(0)}ms`);
 
@@ -208,10 +216,10 @@ export function Settings({
           } else if (dataKey === 'health') {
             useSettingsStore.setState({ systemHealth: res.data });
           }
-          setLoadedTabs(prev => prev.includes(activeTab) ? prev : [...prev, activeTab]);
+          setLoadedTabs((prev) => (prev.includes(activeTab) ? prev : [...prev, activeTab]));
         }
       })
-      .catch(error => {
+      .catch((error) => {
         console.error(`❌ Failed to fetch ${dataKey}:`, error);
       })
       .finally(() => {
@@ -222,8 +230,9 @@ export function Settings({
 
   return (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-      <TabsList className="grid w-full grid-cols-4">
+      <TabsList className="grid w-full grid-cols-5">
         <TabsTrigger value="settings">Global Settings</TabsTrigger>
+        <TabsTrigger value="transition">Transition Planning</TabsTrigger>
         <TabsTrigger value="users">User Management</TabsTrigger>
         <TabsTrigger value="audit">Audit Logs</TabsTrigger>
         <TabsTrigger value="health">System Health</TabsTrigger>
@@ -231,6 +240,17 @@ export function Settings({
 
       <TabsContent value="settings" className="mt-6">
         <GlobalSettings />
+      </TabsContent>
+
+      <TabsContent value="transition" className="mt-6">
+        <div className="text-center py-8">
+          <p className="text-muted-foreground mb-4">
+            Transition planning is available at a dedicated page for better usability
+          </p>
+          <a href="/admin/transition" className="text-primary hover:underline font-medium">
+            Go to Transition Planning →
+          </a>
+        </div>
       </TabsContent>
 
       <TabsContent value="users" className="mt-6">
@@ -247,4 +267,3 @@ export function Settings({
     </Tabs>
   );
 }
-

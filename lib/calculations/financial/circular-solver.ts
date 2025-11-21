@@ -1,33 +1,51 @@
 /**
  * Production Circular Calculation Solver
- * 
+ *
  * Purpose: Production-ready solver for Financial Statements circular calculations
- * 
+ *
  * Circular Dependencies:
  * Interest Expense → Debt → Cash → Net Result → Interest Expense (circular!)
- * 
+ *
  * Solution: Iterative solver with convergence check (validated by POC)
- * 
+ *
  * Performance Targets:
  * - Typical: <100ms for 30-year projection
  * - Worst case: <200ms
  * - Convergence: 1-4 iterations (validated by POC: 40/40 scenarios)
- * 
- * Reference: 
+ *
+ * Reference:
  * - POC: lib/calculations/financial/__poc__/circular-solver-poc.ts
  * - Plan: FINANCIAL_STATEMENTS_IMPLEMENTATION_PLAN.md (lines 1425-1994)
  */
 
 import Decimal from 'decimal.js';
 import type { WorkingCapitalSettings } from '@/lib/utils/admin-settings';
+import {
+  calculateIncomeBasedZakat,
+  calculateAssetBasedZakat,
+  type ZakatCalculationMethod,
+} from './zakat';
+
+/**
+ * Working Capital Calculation Defaults
+ *
+ * These defaults are used when admin_settings values are not available.
+ * They represent conservative business assumptions for school operations.
+ */
+const DEFAULT_WORKING_CAPITAL_DAYS = {
+  ar: 0, // Tuition collected upfront (no receivables delay)
+  ap: 45, // Typical payment terms for suppliers
+  deferredRevenue: 0, // Tuition recognized immediately
+  accruedExpenses: 0, // Expenses recognized when incurred
+} as const;
 
 // Configure Decimal.js for financial precision
 Decimal.set({ precision: 20, rounding: Decimal.ROUND_HALF_UP });
 
 /**
- * Result type for solver
+ * Generic Result type for solver operations
  */
-export type SolverResult<T> =
+export type SolverOperationResult<T> =
   | { success: true; data: T }
   | { success: false; error: string; code?: string };
 
@@ -57,6 +75,7 @@ export interface SolverParams {
 
   // Settings (from admin_settings - fetched automatically if not provided)
   zakatRate?: Decimal;
+  zakatCalculationMethod?: ZakatCalculationMethod; // FORMULA-003: 'INCOME_BASED' or 'ASSET_BASED'
   debtInterestRate?: Decimal;
   bankDepositInterestRate?: Decimal;
   minimumCashBalance?: Decimal;
@@ -142,8 +161,64 @@ interface ConvergenceCheckResult {
 }
 
 /**
+ * FORMULA-006 FIX: Helper function for safe numeric value extraction
+ *
+ * Safely gets a numeric value with fallback to default.
+ * Replaces double-negative logic (!isNaN) with clear positive logic.
+ *
+ * @param value - The value to extract (may be number, undefined, null, or NaN)
+ * @param defaultValue - The fallback value to use if extraction fails
+ * @returns The extracted number or default value
+ *
+ * @example
+ * const arDays = getNumericValue(adminSettings.arDays, 0);
+ * // Clear intent: get arDays or use 0 as fallback
+ */
+function getNumericValue(value: number | undefined | null, defaultValue: number): number {
+  return value !== undefined && value !== null && !isNaN(value) ? value : defaultValue;
+}
+
+/**
+ * Extract Working Capital Days from Settings
+ *
+ * Converts WorkingCapitalSettings structure to simple day counts
+ * with proper fallback handling.
+ *
+ * BUSINESS LOGIC:
+ * - AR Days: Days to collect revenue (typically 0 for schools - tuition collected upfront)
+ * - AP Days: Days to pay suppliers (typically 30-45 days)
+ * - Deferred Revenue Days: Not used in day-based calculation (uses deferral factor instead)
+ * - Accrued Expenses Days: Days of expenses accrued (typically 0-15 days)
+ *
+ * @param settings - Working capital settings from admin_settings
+ * @returns Object with numeric day values
+ */
+function extractWorkingCapitalDays(settings: WorkingCapitalSettings): {
+  arDays: number;
+  apDays: number;
+  deferralFactor: number;
+  accrualDays: number;
+} {
+  return {
+    arDays: getNumericValue(
+      settings.accountsReceivable?.collectionDays,
+      DEFAULT_WORKING_CAPITAL_DAYS.ar
+    ),
+    apDays: getNumericValue(settings.accountsPayable?.paymentDays, DEFAULT_WORKING_CAPITAL_DAYS.ap),
+    deferralFactor: getNumericValue(
+      settings.deferredIncome?.deferralFactor,
+      0.0 // Default: no deferral
+    ),
+    accrualDays: getNumericValue(
+      settings.accruedExpenses?.accrualDays,
+      DEFAULT_WORKING_CAPITAL_DAYS.accruedExpenses
+    ),
+  };
+}
+
+/**
  * Production Circular Calculation Solver
- * 
+ *
  * @example
  * const solver = new CircularSolver();
  * const params: SolverParams = {
@@ -158,7 +233,7 @@ interface ConvergenceCheckResult {
  *   startingCash: new Decimal(5000000),
  *   openingEquity: new Decimal(10000000),
  * };
- * 
+ *
  * const result = await solver.solve(params);
  * if (result.success) {
  *   console.log('Projection:', result.data.projection);
@@ -167,11 +242,11 @@ interface ConvergenceCheckResult {
 export class CircularSolver {
   /**
    * Solve circular calculation for 30-year projection
-   * 
+   *
    * @param params - Solver parameters
    * @returns Solver result with 30-year projection
    */
-  async solve(params: SolverParams): Promise<SolverResult<SolverResult>> {
+  async solve(params: SolverParams): Promise<SolverOperationResult<SolverResult>> {
     const startTime = performance.now();
 
     try {
@@ -221,10 +296,7 @@ export class CircularSolver {
       for (iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         // Check convergence (skip first iteration)
         if (iteration > 1) {
-          convergenceResult = this.checkConvergence(
-            previousProjection,
-            currentProjection
-          );
+          convergenceResult = this.checkConvergence(previousProjection, currentProjection);
 
           if (convergenceResult.converged) {
             converged = true;
@@ -251,9 +323,7 @@ export class CircularSolver {
 
       // Log performance warning if slow
       if (duration > 100) {
-        console.warn(
-          `⚠️ Circular solver took ${duration.toFixed(2)}ms (target: <100ms)`
-        );
+        console.warn(`⚠️ Circular solver took ${duration.toFixed(2)}ms (target: <100ms)`);
       }
 
       // Return result
@@ -282,10 +352,8 @@ export class CircularSolver {
   /**
    * Fetch financial settings from admin_settings (if not provided in params)
    */
-  private async fetchFinancialSettings(
-    params: SolverParams
-  ): Promise<
-    SolverResult<{
+  private async fetchFinancialSettings(params: SolverParams): Promise<
+    SolverOperationResult<{
       zakatRate: Decimal;
       debtInterestRate: Decimal;
       bankDepositInterestRate: Decimal;
@@ -316,14 +384,15 @@ export class CircularSolver {
     // ✅ FIX: Fetch from API instead of direct Prisma call (browser-safe)
     try {
       // Use absolute URL for server-side compatibility
-      const baseUrl = typeof window !== 'undefined' 
-        ? window.location.origin 
-        : process.env.NEXTAUTH_URL || 'http://localhost:3000';
-      
+      const baseUrl =
+        typeof window !== 'undefined'
+          ? window.location.origin
+          : process.env.NEXTAUTH_URL || 'http://localhost:3000';
+
       const response = await fetch(`${baseUrl}/api/admin/financial-settings`, {
         cache: 'no-store', // Always fetch fresh data
       });
-      
+
       if (!response.ok) {
         console.error('[CircularSolver] API fetch failed:', response.status, response.statusText);
         // Return defaults instead of failing completely
@@ -406,7 +475,7 @@ export class CircularSolver {
   /**
    * Validate input arrays (must be 30 years)
    */
-  private validateInputs(params: SolverParams): SolverResult<void> {
+  private validateInputs(params: SolverParams): SolverOperationResult<void> {
     const requiredLength = 30; // 2023-2052
 
     if (params.revenue.length !== requiredLength) {
@@ -479,30 +548,61 @@ export class CircularSolver {
       const interestExpense = new Decimal(0);
       const interestIncome = new Decimal(0);
 
-      // Calculate net result (simplified Zakat method)
+      /**
+       * FORMULA-003: Zakat Calculation
+       *
+       * Two methods available (configured via zakatCalculationMethod parameter):
+       * 1. INCOME_BASED (default): Zakat = max(0, NetIncome) × 2.5%
+       * 2. ASSET_BASED: Zakat = ZakatableAssets × 2.5% (if above Nisab threshold)
+       *
+       * For backward compatibility and simplicity, we use INCOME_BASED by default.
+       * Asset-based method requires balance sheet data and is more Islamically accurate.
+       */
       const netResultBeforeZakat = ebitda
         .minus(depreciation)
         .minus(interestExpense)
         .plus(interestIncome);
-      const zakat = Decimal.max(0, netResultBeforeZakat).times(zakatRate);
+
+      // Use income-based method (simplified, backward compatible)
+      // For asset-based method, use calculateAssetBasedZakat with cash + AR
+      const zakatResult = calculateIncomeBasedZakat({
+        netIncome: netResultBeforeZakat,
+        zakatRate: zakatRate,
+      });
+
+      const zakat = zakatResult.success ? zakatResult.data : new Decimal(0);
       const netResult = netResultBeforeZakat.minus(zakat);
 
       // Working capital calculations
+      // Extract numeric values with clear fallback logic (FORMULA-006 FIX)
+      const wcDays = extractWorkingCapitalDays(workingCapitalSettings);
+
       const avgRevenuePerDay = revenue.div(365);
       const avgStaffCostsPerDay = staffCosts.div(365);
 
-      const accountsReceivable = avgRevenuePerDay.times(
-        workingCapitalSettings.accountsReceivable.collectionDays
-      );
-      const accountsPayable = avgStaffCostsPerDay.times(
-        workingCapitalSettings.accountsPayable.paymentDays
-      );
-      const deferredIncome = revenue.times(
-        workingCapitalSettings.deferredIncome.deferralFactor
-      );
-      const accruedExpenses = staffCosts.times(
-        workingCapitalSettings.accruedExpenses.accrualDays / 365
-      );
+      /**
+       * Accounts Receivable = Average Daily Revenue × Collection Days
+       * Represents tuition fees not yet collected from families
+       */
+      const accountsReceivable = avgRevenuePerDay.times(wcDays.arDays);
+
+      /**
+       * Accounts Payable = Average Daily Staff Costs × Payment Days
+       * Represents amounts owed to suppliers (primarily staff salaries)
+       */
+      const accountsPayable = avgStaffCostsPerDay.times(wcDays.apDays);
+
+      /**
+       * Deferred Income = Annual Revenue × Deferral Factor
+       * Represents tuition collected but not yet earned (e.g., for future terms)
+       */
+      const deferredIncome = revenue.times(wcDays.deferralFactor);
+
+      /**
+       * Accrued Expenses = Staff Costs × (Accrual Days / 365)
+       * Represents expenses incurred but not yet paid
+       */
+      const accruedExpenses = staffCosts.times(wcDays.accrualDays / 365);
 
       // Working capital change (positive = uses cash, negative = provides cash)
       const workingCapitalChange = accountsReceivable
@@ -512,11 +612,9 @@ export class CircularSolver {
         .minus(accruedExpenses.minus(previousAccrued)); // Accrued increase provides cash
 
       // Cash flow calculations
-      const operatingCashFlow = netResult
-        .plus(depreciation)
-        .minus(workingCapitalChange);
+      const operatingCashFlow = netResult.plus(depreciation).minus(workingCapitalChange);
       const investingCashFlow = capex.neg();
-      
+
       // Theoretical cash (before balancing - only operating + investing)
       const theoreticalCash = previousCash.plus(operatingCashFlow).plus(investingCashFlow);
 
@@ -541,7 +639,7 @@ export class CircularSolver {
         shortTermDebt = previousDebt.plus(minimumCashBalance.minus(theoreticalCash));
         financingCashFlow = shortTermDebt.minus(previousDebt);
       }
-      
+
       // Net cash flow = operating + investing + financing
       const netCashFlow = operatingCashFlow.plus(investingCashFlow).plus(financingCashFlow);
 
@@ -637,7 +735,8 @@ export class CircularSolver {
       const depreciation = previousFixedAssets.times(params.depreciationRate);
 
       // Calculate interest using previous iteration's balances
-      const currentDebt = i < previousIteration.length ? previousIteration[i].shortTermDebt : new Decimal(0);
+      const currentDebt =
+        i < previousIteration.length ? previousIteration[i].shortTermDebt : new Decimal(0);
       const currentCash = i < previousIteration.length ? previousIteration[i].cash : previousCash;
 
       // Average debt/cash for interest calculation (BOY + EOY) / 2
@@ -647,30 +746,53 @@ export class CircularSolver {
       const interestExpense = averageDebt.times(debtInterestRate);
       const interestIncome = averageCash.times(bankDepositInterestRate);
 
-      // Calculate net result
+      /**
+       * FORMULA-003: Zakat Calculation
+       * Using income-based method for consistency with first iteration
+       */
       const netResultBeforeZakat = ebitda
         .minus(depreciation)
         .minus(interestExpense)
         .plus(interestIncome);
-      const zakat = Decimal.max(0, netResultBeforeZakat).times(zakatRate);
+
+      const zakatResult = calculateIncomeBasedZakat({
+        netIncome: netResultBeforeZakat,
+        zakatRate: zakatRate,
+      });
+
+      const zakat = zakatResult.success ? zakatResult.data : new Decimal(0);
       const netResult = netResultBeforeZakat.minus(zakat);
 
       // Working capital
+      // Extract numeric values with clear fallback logic (FORMULA-006 FIX)
+      const wcDays = extractWorkingCapitalDays(workingCapitalSettings);
+
       const avgRevenuePerDay = revenue.div(365);
       const avgStaffCostsPerDay = staffCosts.div(365);
 
-      const accountsReceivable = avgRevenuePerDay.times(
-        workingCapitalSettings.accountsReceivable.collectionDays
-      );
-      const accountsPayable = avgStaffCostsPerDay.times(
-        workingCapitalSettings.accountsPayable.paymentDays
-      );
-      const deferredIncome = revenue.times(
-        workingCapitalSettings.deferredIncome.deferralFactor
-      );
-      const accruedExpenses = staffCosts.times(
-        workingCapitalSettings.accruedExpenses.accrualDays / 365
-      );
+      /**
+       * Accounts Receivable = Average Daily Revenue × Collection Days
+       * Represents tuition fees not yet collected from families
+       */
+      const accountsReceivable = avgRevenuePerDay.times(wcDays.arDays);
+
+      /**
+       * Accounts Payable = Average Daily Staff Costs × Payment Days
+       * Represents amounts owed to suppliers (primarily staff salaries)
+       */
+      const accountsPayable = avgStaffCostsPerDay.times(wcDays.apDays);
+
+      /**
+       * Deferred Income = Annual Revenue × Deferral Factor
+       * Represents tuition collected but not yet earned (e.g., for future terms)
+       */
+      const deferredIncome = revenue.times(wcDays.deferralFactor);
+
+      /**
+       * Accrued Expenses = Staff Costs × (Accrual Days / 365)
+       * Represents expenses incurred but not yet paid
+       */
+      const accruedExpenses = staffCosts.times(wcDays.accrualDays / 365);
 
       // Working capital change (positive = uses cash, negative = provides cash)
       const workingCapitalChange = accountsReceivable
@@ -680,11 +802,9 @@ export class CircularSolver {
         .minus(accruedExpenses.minus(previousAccrued)); // Accrued increase provides cash
 
       // Cash flow
-      const operatingCashFlow = netResult
-        .plus(depreciation)
-        .minus(workingCapitalChange);
+      const operatingCashFlow = netResult.plus(depreciation).minus(workingCapitalChange);
       const investingCashFlow = capex.neg();
-      
+
       // Theoretical cash (before balancing - only operating + investing)
       const theoreticalCash = previousCash.plus(operatingCashFlow).plus(investingCashFlow);
 
@@ -709,7 +829,7 @@ export class CircularSolver {
         shortTermDebt = previousDebt.plus(minimumCashBalance.minus(theoreticalCash));
         financingCashFlow = shortTermDebt.minus(previousDebt);
       }
-      
+
       // Net cash flow = operating + investing + financing
       const netCashFlow = operatingCashFlow.plus(investingCashFlow).plus(financingCashFlow);
 
@@ -819,4 +939,3 @@ export class CircularSolver {
     };
   }
 }
-

@@ -12,12 +12,12 @@ import type { VersionWithRelations } from './create';
 
 /**
  * Duplicate a version with all its relationships
- * 
+ *
  * @param id - Source version ID
  * @param userId - ID of user duplicating the version
  * @param newName - Optional new name for duplicated version
  * @returns Result containing duplicated version with all relationships
- * 
+ *
  * @example
  * const result = await duplicateVersion(sourceVersionId, userId, 'New Version Name');
  * if (result.success) {
@@ -137,6 +137,30 @@ export async function duplicateVersion(
         });
       }
 
+      // 6. Duplicate balance sheet settings (or create default)
+      const sourceBalanceSheetSettings = await tx.balance_sheet_settings.findUnique({
+        where: { versionId: id },
+      });
+
+      if (sourceBalanceSheetSettings) {
+        await tx.balance_sheet_settings.create({
+          data: {
+            versionId: newVersion.id,
+            startingCash: sourceBalanceSheetSettings.startingCash,
+            openingEquity: sourceBalanceSheetSettings.openingEquity,
+          },
+        });
+      } else {
+        // Create default balance sheet settings if source doesn't have one
+        await tx.balance_sheet_settings.create({
+          data: {
+            versionId: newVersion.id,
+            startingCash: new Prisma.Decimal(5_000_000),
+            openingEquity: new Prisma.Decimal(55_000_000),
+          },
+        });
+      }
+
       return newVersion;
     });
 
@@ -206,4 +230,3 @@ export async function duplicateVersion(
     return error('Failed to duplicate version', 'INTERNAL_ERROR');
   }
 }
-

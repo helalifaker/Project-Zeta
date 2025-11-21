@@ -22,8 +22,16 @@ interface VersionTableProps {
   versions: VersionListItem[];
 }
 
-function formatDate(date: Date | string): string {
+function formatDate(date: Date | string | null | undefined): string {
+  if (date === null || date === undefined) {
+    return 'No date';
+  }
+
   const d = typeof date === 'string' ? new Date(date) : date;
+  if (!(d instanceof Date) || isNaN(d.getTime())) {
+    return 'Invalid date';
+  }
+
   return d.toLocaleDateString();
 }
 
@@ -85,4 +93,3 @@ export function VersionTable({ versions }: VersionTableProps) {
     </Table>
   );
 }
-

@@ -1,9 +1,9 @@
 # Coordination Hub
 
 **Purpose:** Central navigation and status tracking for all Project Zeta documentation
-**Last Updated:** 2025-11-20
+**Last Updated:** 2025-11-21
 **Document Count:** 140+ markdown files
-**Status:** 🟢 Active Development
+**Status:** 🔴 Critical Performance Issues Detected
 
 ---
 
@@ -165,14 +165,14 @@
 
 ## Project Status Overview
 
-**Last Verified:** 2025-11-20
+**Last Verified:** 2025-11-21
 
 ### Current State
 - **Version:** Pre-Production (79% Complete - 23/29 features)
-- **Primary Focus:** Financial Statements UI Implementation
-- **Active Branch:** main
-- **Development Status:** Active Development
-- **Production Readiness:** 🟢 UNBLOCKED - Phase 0 Complete (Challenge 1 Resolved)
+- **Primary Focus:** Database Performance Crisis + Financial Statements UI
+- **Active Branch:** fix/challenge-1-dual-calculation-path
+- **Development Status:** 🔴 **CRITICAL** - Database Performance Issues Detected
+- **Production Readiness:** 🔴 **BLOCKED** - Database queries 30-40x slower than target + Missing migrations
 
 ### Quick Status Indicators
 | Area | Status | Last Verified | Primary Doc |
@@ -645,17 +645,152 @@ Performance target of <50ms for 30-year projection needs verification in product
 
 ---
 
+### Challenge 8: Database Performance Crisis & Missing Migrations 🔴 CRITICAL
+
+**Status:** 🔴 **PRODUCTION BLOCKER** - Discovered 2025-11-21
+**Priority:** P0 - Immediate Action Required
+**Risk Level:** CRITICAL - Blocks all development and production deployment
+**Discovered:** 2025-11-21 via terminal analysis
+
+**Problem:**
+Database queries are performing catastrophically slow (30-40x slower than targets) and critical admin_settings fields are missing, causing the application to fall back to hardcoded defaults.
+
+**Critical Performance Issues:**
+```
+Target: <100ms  → Actual: 1,066ms  (10.6x slower)  - /api/versions query
+Target: <1000ms → Actual: 3,822ms  (3.8x slower)   - /api/versions/[id] query
+Target: <100ms  → Actual: 1,045ms  (10.4x slower)  - /api/admin/settings query
+Target: <100ms  → Actual: 1,032ms  (10.3x slower)  - /api/admin/settings (duplicate)
+Target: <1000ms → Actual: 3,518ms  (3.5x slower)   - /api/versions/[id] (duplicate)
+Target: <1000ms → Actual: 2,580ms  (2.6x slower)   - /api/versions?page=1&limit=20
+Target: <1000ms → Actual: 2,681ms  (2.7x slower)   - /api/versions/.../balance-sheet-settings
+```
+
+**Impact:** Page loads taking 3-5 seconds instead of target <2s. User experience severely degraded.
+
+**Missing Database Migrations:**
+The following critical admin_settings fields are missing from the database:
+- ❌ `zakatRate` - Using deprecated `taxRate` instead (REGULATORY COMPLIANCE ISSUE)
+- ❌ `debt_interest_rate` - Falling back to hardcoded 5%
+- ❌ `bank_deposit_interest_rate` - Falling back to hardcoded 2%
+- ❌ `minimum_cash_balance` - Falling back to hardcoded 1M SAR
+- ❌ `working_capital_settings` - Using default values
+
+**Console Warnings Observed:**
+```
+⚠️ [DEPRECATION] Using deprecated taxRate. Please run migration to add zakatRate.
+⚠️ [DEFAULT] debt_interest_rate not found. Using default 5%.
+⚠️ [DEFAULT] bank_deposit_interest_rate not found. Using default 2%.
+⚠️ [DEFAULT] minimum_cash_balance not found. Using default 1M SAR.
+⚠️ [DEFAULT] working_capital_settings not found. Using defaults.
+⚠️ [DEFAULT] Neither zakatRate nor taxRate found. Using default 2.5%.
+```
+
+**Additional Issues:**
+- Webpack serialization warning: Large strings (185kiB, 139kiB) impacting performance
+- No database indexes on frequently queried fields (suspected)
+- Possible N+1 query problems in version endpoints
+
+**Root Causes (Suspected):**
+1. **Missing Indexes:** No indexes on `versionId`, foreign keys, or frequently filtered fields
+2. **N+1 Queries:** Likely fetching related data in loops instead of using joins/includes
+3. **Schema Drift:** Database schema out of sync with application code expectations
+4. **pgBouncer Config:** Possible connection pooling misconfiguration
+5. **Cross-Region Latency:** If Supabase region ≠ application region
+
+**Immediate Actions Required:**
+
+1. **Run Pending Migrations (URGENT - 30 minutes):**
+   ```bash
+   cd /Users/fakerhelali/Desktop/Project\ Zeta
+   npx prisma migrate status    # Check migration state
+   npx prisma migrate dev        # Apply pending migrations
+   npx prisma generate           # Regenerate Prisma Client
+   ```
+
+2. **Add Missing admin_settings Fields (URGENT - 1 hour):**
+   - Create migration to add zakatRate, debt_interest_rate, bank_deposit_interest_rate, minimum_cash_balance, working_capital_settings
+   - Update seed data to populate these fields
+   - Test that defaults are no longer used
+
+3. **Database Query Analysis (HIGH - 2-3 hours):**
+   - Add query logging to identify slow queries
+   - Use `EXPLAIN ANALYZE` on slow endpoints
+   - Identify missing indexes
+
+4. **Add Database Indexes (HIGH - 2 hours):**
+   ```prisma
+   // Suspected missing indexes:
+   @@index([versionId])           // On curriculum_plans, rent_plans, etc.
+   @@index([userId])              // On versions
+   @@index([createdAt])           // For sorting
+   ```
+
+5. **Optimize N+1 Queries (MEDIUM - 4 hours):**
+   - Review `/api/versions/[id]` endpoint
+   - Add Prisma `include` for related data
+   - Replace loops with batch queries
+
+**Implementation Files to Review:**
+- `prisma/schema.prisma` - Add missing fields and indexes
+- `app/api/versions/route.ts` - Optimize query (1,066ms → <100ms)
+- `app/api/versions/[id]/route.ts` - Optimize query (3,822ms → <1000ms)
+- `app/api/admin/settings/route.ts` - Optimize query (1,045ms → <100ms)
+- `services/admin/settings.ts` - Add missing fields to schema
+- `lib/utils/admin-settings.ts` - Update caching strategy
+
+**Related Documentation:**
+- `DATABASE_PERFORMANCE_REPORT.md` - Existing performance analysis
+- `DATABASE_SETUP.md` - Database configuration
+- `SCHEMA.md` - Current schema documentation (needs update)
+- `TROUBLESHOOTING_DATABASE.md` - Troubleshooting guide
+
+**Success Criteria:**
+- ✅ All migrations applied successfully
+- ✅ No more "[DEFAULT]" or "[DEPRECATION]" warnings in console
+- ✅ `/api/versions` query < 100ms (target met)
+- ✅ `/api/versions/[id]` query < 1000ms (target met)
+- ✅ `/api/admin/settings` query < 100ms (target met)
+- ✅ Page loads < 2s First Contentful Paint
+- ✅ All admin_settings fields populated from database
+
+**Estimated Fix Time:**
+- Phase 1 (Migrations): 30 minutes - 1 hour (IMMEDIATE)
+- Phase 2 (Indexes): 2 hours
+- Phase 3 (Query Optimization): 4-6 hours
+- **Total:** 6-9 hours (1 day)
+
+**Blocker Status:** YES - Blocks all development until resolved
+**Priority Over:** All other challenges (including Challenge 2 - Financial Statements UI)
+
+**Risk Assessment:**
+- **If not fixed:** Application unusable in production (3-5s page loads)
+- **Regulatory Risk:** Using wrong zakat/tax rates could cause compliance issues
+- **User Experience:** Severe degradation, users will abandon application
+- **Development Impact:** Slow feedback loops during development
+
+**Next Steps:**
+1. Stop all feature development
+2. Run migrations immediately
+3. Add database indexes
+4. Profile and optimize slow queries
+5. Verify performance targets met
+6. Resume feature development
+
+---
+
 ### Challenge Summary Table
 
 | # | Challenge | Status | Priority | Risk | Est. Time | Blocker |
 |---|-----------|--------|----------|------|-----------|---------|
-| 1 | Dual Calculation Path | 🔴 Critical | P0 | CRITICAL | 2-3 hrs | Yes |
+| 1 | Dual Calculation Path | ✅ Resolved | P0 | MITIGATED | N/A | No |
 | 2 | Financial Statements UI | 🟡 In Progress | P1 | HIGH | 7-9 days | No |
 | 3 | Planning Periods Schema | 🟡 In Design | P2 | MEDIUM | 7-10 days | No |
 | 4 | Prisma Naming | ✅ Resolved | P3 | LOW | N/A | No |
 | 5 | Zakat Calculation | 🟡 In Analysis | P2 | HIGH | 2-3 days | Yes* |
 | 6 | DB Performance | 🟢 Monitoring | P3 | MEDIUM | 3-5 days | No |
 | 7 | Web Worker Performance | 🟢 On Track | P2 | LOW | 1-2 days | No |
+| 8 | **DB Performance Crisis** | 🔴 **CRITICAL** | **P0** | **CRITICAL** | **6-9 hrs** | **YES** |
 
 *Blocker: Requires business decision
 
@@ -663,20 +798,27 @@ Performance target of <50ms for 30-year projection needs verification in product
 
 ### Resolution Priority
 
-**Immediate (This Week):**
-1. Challenge 1: Dual Calculation Path (2-3 hours)
-2. Challenge 2: Financial Statements UI (start Phase 9)
+**🚨 IMMEDIATE (RIGHT NOW - Stop all other work):**
+1. **Challenge 8: Database Performance Crisis** (6-9 hours) - PRODUCTION BLOCKER
+   - Run pending migrations
+   - Add missing admin_settings fields
+   - Add database indexes
+   - Optimize slow queries
+
+**High Priority (This Week):**
+2. Challenge 2: Financial Statements UI (7-9 days) - Resume after Challenge 8 resolved
 
 **Short Term (Next 2 Weeks):**
-3. Challenge 5: Zakat Calculation (after requirements clarity)
-4. Challenge 3: Planning Periods (simplified approach)
+3. Challenge 5: Zakat Calculation (2-3 days) - Requires business decision
+4. Challenge 3: Planning Periods (7-10 days) - Simplified approach
 
 **Medium Term (Post-Launch):**
-5. Challenge 6: Database Performance Optimization
-6. Challenge 7: Web Worker Performance Verification
+5. Challenge 6: Database Performance Optimization (3-5 days) - Monitoring
+6. Challenge 7: Web Worker Performance Verification (1-2 days) - Testing
 
-**Low Priority (Future):**
-7. Challenge 4: Prisma Naming Documentation
+**Completed:**
+7. ✅ Challenge 1: Dual Calculation Path - RESOLVED (2025-11-20)
+8. ✅ Challenge 4: Prisma Naming - Documentation updated
 
 ---
 
@@ -1375,12 +1517,34 @@ DYNAMIC (2028-2052)
 
 ## Known Issues & Technical Debt
 
+### 🔴 Critical Issues (BLOCKING PRODUCTION)
+1. **Database Performance Crisis** (Discovered: 2025-11-21)
+   - API queries 30-40x slower than target
+   - `/api/versions/[id]`: 3,822ms (target: <1000ms)
+   - `/api/versions`: 1,066ms (target: <100ms)
+   - `/api/admin/settings`: 1,045ms (target: <100ms)
+   - **Action:** Add indexes, optimize N+1 queries
+   - **Priority:** P0 - Stop all other work
+   - **See:** [Challenge 8](#challenge-8-database-performance-crisis--missing-migrations-critical)
+
+2. **Missing Database Migrations** (Discovered: 2025-11-21)
+   - ❌ `zakatRate` field missing (using deprecated `taxRate`)
+   - ❌ `debt_interest_rate` not in database
+   - ❌ `bank_deposit_interest_rate` not in database
+   - ❌ `minimum_cash_balance` not in database
+   - ❌ `working_capital_settings` not in database
+   - **Action:** Run migrations immediately
+   - **Priority:** P0 - Regulatory compliance risk
+   - **See:** [Challenge 8](#challenge-8-database-performance-crisis--missing-migrations-critical)
+
 ### Active Issues
-1. **Performance:** 30-year projection calculation time needs optimization (target: <50ms)
-2. **Testing:** Need comprehensive test coverage for circular solver
-3. **UI/UX:** Financial statement displays need responsive design improvements
+3. **Performance:** 30-year projection calculation time needs optimization (target: <50ms)
+4. **Testing:** Need comprehensive test coverage for circular solver
+5. **UI/UX:** Financial statement displays need responsive design improvements
+6. **Webpack:** Large string serialization (185kiB, 139kiB) impacting performance
 
 ### Addressed Issues
+- ✅ Dual Calculation Path resolved (2025-11-20) - [Challenge 1](#challenge-1-dual-calculation-path--data-loss-resolved)
 - ✅ Prisma Client browser error resolved
 - ✅ EBITDA calculation accuracy fixed
 - ✅ Historical data display integrated

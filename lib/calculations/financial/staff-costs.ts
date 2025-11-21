@@ -79,28 +79,37 @@ export function calculateStaffCostForYear(
       return error('CPI rate cannot be negative');
     }
 
-    if (year < baseYear) {
-      return error('Year must be >= base year');
-    }
+    // ✅ FORMULA-005 FIX: Allow years before base year (for backward deflation)
+    // Removed validation: year < baseYear is now allowed
 
     if (cpiFrequency !== 1 && cpiFrequency !== 2 && cpiFrequency !== 3) {
       return error('CPI frequency must be 1, 2, or 3 years');
     }
 
-    // Calculate which CPI period this year belongs to
-    // Period 0: baseYear to baseYear + frequency - 1
-    // Period 1: baseYear + frequency to baseYear + 2*frequency - 1
-    // etc.
+    // ✅ FORMULA-005 FIX: Handle backward deflation for years before base year
     const yearsFromBase = year - baseYear;
-    const cpiPeriod = Math.floor(yearsFromBase / cpiFrequency);
+    let staffCost: Decimal;
 
-    // Calculate: base_staff_cost × (1 + cpi_rate)^period
-    const escalationFactor = Decimal.add(1, rate).pow(cpiPeriod);
-    const staffCost = base.times(escalationFactor);
+    if (yearsFromBase < 0) {
+      // Year is BEFORE base year: apply backward deflation
+      const yearsBeforeBase = Math.abs(yearsFromBase);
+      // Deflate backward: divide by (1 + rate)^years
+      const deflationFactor = Decimal.add(1, rate).pow(yearsBeforeBase);
+      staffCost = base.dividedBy(deflationFactor);
+    } else {
+      // Year is >= base year: apply forward growth
+      // Period 0: baseYear to baseYear + frequency - 1
+      // Period 1: baseYear + frequency to baseYear + 2*frequency - 1
+      const cpiPeriod = Math.floor(yearsFromBase / cpiFrequency);
+      const escalationFactor = Decimal.add(1, rate).pow(cpiPeriod);
+      staffCost = base.times(escalationFactor);
+    }
 
     return success(staffCost);
   } catch (err) {
-    return error(`Failed to calculate staff cost: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    return error(
+      `Failed to calculate staff cost: ${err instanceof Error ? err.message : 'Unknown error'}`
+    );
   }
 }
 
@@ -121,9 +130,7 @@ export function calculateStaffCostForYear(
  * });
  * // Returns array with staff costs for 2028-2032
  */
-export function calculateStaffCosts(
-  params: StaffCostParams
-): Result<StaffCostResult[]> {
+export function calculateStaffCosts(params: StaffCostParams): Result<StaffCostResult[]> {
   try {
     const { baseStaffCost, cpiRate, cpiFrequency, baseYear, startYear, endYear } = params;
 
@@ -165,21 +172,31 @@ export function calculateStaffCosts(
 
     for (let year = startYear; year <= endYear; year++) {
       const yearsFromBase = year - baseYear;
-      
-      // ✅ FIX: Handle years before baseYear (e.g., 2023-2027 when baseYear=2028)
-      // For relocation mode: use base value for years before relocation (no growth)
-      // For years >= baseYear: apply CPI growth normally
+
+      // ✅ FORMULA-005 FIX: Handle years before baseYear with backward deflation
+      // For years BEFORE base year (e.g., 2025-2027 when baseYear=2028):
+      //   Apply BACKWARD deflation: staffCost = base / (1 + cpiRate)^yearsBeforeBase
+      //   Example: 2025 is 3 years before 2028, so staffCost2025 = base / (1.03)^3
+      // For years >= baseYear: apply forward CPI growth normally
+      let staffCost: Decimal;
       let cpiPeriod: number;
+
       if (yearsFromBase < 0) {
-        // Year is before base year: use base value (period 0, no growth)
-        cpiPeriod = 0;
+        // Year is BEFORE base year: apply backward deflation
+        // yearsFromBase is negative, so we take absolute value
+        const yearsBeforeBase = Math.abs(yearsFromBase);
+        cpiPeriod = -Math.ceil(yearsBeforeBase / cpiFrequency); // Negative to indicate backward period
+
+        // Deflate backward: divide by (1 + rate)^years
+        // This ensures staff costs are LOWER in earlier years (accounting for inflation)
+        const deflationFactor = escalationFactorBase.pow(yearsBeforeBase);
+        staffCost = base.dividedBy(deflationFactor);
       } else {
-        // Year is >= base year: calculate CPI period normally
+        // Year is >= base year: calculate CPI period normally (forward growth)
         cpiPeriod = Math.floor(yearsFromBase / cpiFrequency);
+        const escalationFactor = escalationFactorBase.pow(cpiPeriod);
+        staffCost = base.times(escalationFactor);
       }
-      
-      const escalationFactor = escalationFactorBase.pow(cpiPeriod);
-      const staffCost = base.times(escalationFactor);
 
       results.push({
         year,
@@ -190,20 +207,22 @@ export function calculateStaffCosts(
 
     return success(results);
   } catch (err) {
-    return error(`Failed to calculate staff costs: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    return error(
+      `Failed to calculate staff costs: ${err instanceof Error ? err.message : 'Unknown error'}`
+    );
   }
 }
 
 /**
  * Calculate staff cost base from curriculum plans for a specific year
- * 
+ *
  * Formula per curriculum:
  * - Number of teachers = students / teacherRatio
  * - Number of non-teachers = students / nonTeacherRatio
  * - Annual teacher cost = (students / teacherRatio) × teacherMonthlySalary × 12
  * - Annual non-teacher cost = (students / nonTeacherRatio) × nonTeacherMonthlySalary × 12
  * - Total curriculum staff cost = teacher cost + non-teacher cost
- * 
+ *
  * Total staff cost = sum across all curricula
  *
  * @param curriculumPlans - Array of curriculum plans with staff cost data
@@ -239,13 +258,50 @@ export function calculateStaffCostBaseFromCurriculum(
     let totalStaffCost = new Decimal(0);
 
     for (const plan of curriculumPlans) {
-      // Find students for the base year
-      const yearData = plan.studentsProjection.find((p) => p.year === baseYear);
+      // ✅ FIX: Find students for the base year, with fallback to closest year
+      let yearData = plan.studentsProjection.find((p) => p.year === baseYear);
+      let students: number;
+      let usedYear = baseYear;
+
       if (!yearData) {
-        return error(`Students projection not found for year ${baseYear} in curriculum ${plan.curriculumType}`);
+        // If exact year not found, find the closest year
+        // Prefer years before baseYear (more conservative), then after
+        const sortedProjections = [...plan.studentsProjection].sort((a, b) => a.year - b.year);
+        
+        // Find closest year before baseYear
+        const yearsBefore = sortedProjections.filter((p) => p.year < baseYear);
+        const closestBefore = yearsBefore.length > 0 ? yearsBefore[yearsBefore.length - 1] : null;
+        
+        // Find closest year after baseYear
+        const yearsAfter = sortedProjections.filter((p) => p.year > baseYear);
+        const closestAfter = yearsAfter.length > 0 ? yearsAfter[0] : null;
+        
+        // Choose closest year (prefer before, then after)
+        if (closestBefore && closestAfter) {
+          const diffBefore = baseYear - closestBefore.year;
+          const diffAfter = closestAfter.year - baseYear;
+          yearData = diffBefore <= diffAfter ? closestBefore : closestAfter;
+        } else if (closestBefore) {
+          yearData = closestBefore;
+        } else if (closestAfter) {
+          yearData = closestAfter;
+        } else {
+          // No projection data at all
+          return error(
+            `Students projection is empty for curriculum ${plan.curriculumType}. ` +
+            `Please add student enrollment data for year ${baseYear} or nearby years.`
+          );
+        }
+
+        usedYear = yearData.year;
+        console.warn(
+          `⚠️ [Staff Cost] Year ${baseYear} not found in ${plan.curriculumType} projection. ` +
+          `Using year ${usedYear} (${yearData.students} students) as fallback. ` +
+          `Please update the enrollment projection to include year ${baseYear} for accurate calculations.`
+        );
       }
 
-      const students = yearData.students;
+      students = yearData.students;
 
       // Validate required fields
       if (
@@ -282,12 +338,16 @@ export function calculateStaffCostBaseFromCurriculum(
       // Teacher ratio should be fraction (e.g., 0.0714 = 1/14 teachers per student)
       // Convert from percentage to decimal if needed
       if (teacherRatio.greaterThan(1)) {
-        console.warn(`⚠️ Teacher ratio (${teacherRatio}) > 1, converting from percentage to decimal`);
+        console.warn(
+          `⚠️ Teacher ratio (${teacherRatio}) > 1, converting from percentage to decimal`
+        );
         teacherRatio = teacherRatio.dividedBy(100);
       }
-      
+
       if (nonTeacherRatio.greaterThan(1)) {
-        console.warn(`⚠️ Non-teacher ratio (${nonTeacherRatio}) > 1, converting from percentage to decimal`);
+        console.warn(
+          `⚠️ Non-teacher ratio (${nonTeacherRatio}) > 1, converting from percentage to decimal`
+        );
         nonTeacherRatio = nonTeacherRatio.dividedBy(100);
       }
 
@@ -311,11 +371,15 @@ export function calculateStaffCostBaseFromCurriculum(
 
       // Validate salaries are positive
       if (teacherMonthlySalary.isNegative() || teacherMonthlySalary.isZero()) {
-        return error(`Teacher monthly salary must be positive for curriculum ${plan.curriculumType}`);
+        return error(
+          `Teacher monthly salary must be positive for curriculum ${plan.curriculumType}`
+        );
       }
 
       if (nonTeacherMonthlySalary.isNegative() || nonTeacherMonthlySalary.isZero()) {
-        return error(`Non-teacher monthly salary must be positive for curriculum ${plan.curriculumType}`);
+        return error(
+          `Non-teacher monthly salary must be positive for curriculum ${plan.curriculumType}`
+        );
       }
 
       // Calculate number of staff members
@@ -331,7 +395,7 @@ export function calculateStaffCostBaseFromCurriculum(
 
       // Add to total
       const curriculumStaffCost = annualTeacherCost.plus(annualNonTeacherCost);
-      
+
       // 🐛 DEBUG: Log detailed calculation for verification
       console.log(`[STAFF COST CALCULATION] ${plan.curriculumType}:`, {
         students: students,
@@ -344,10 +408,10 @@ export function calculateStaffCostBaseFromCurriculum(
         curriculumStaffCost: curriculumStaffCost.toNumber(),
         runningTotal: totalStaffCost.plus(curriculumStaffCost).toNumber(),
       });
-      
+
       totalStaffCost = totalStaffCost.plus(curriculumStaffCost);
     }
-    
+
     // 🐛 DEBUG: Log final total
     console.log('[STAFF COST BASE] Final total:', {
       totalStaffCost: totalStaffCost.toNumber(),
@@ -365,4 +429,3 @@ export function calculateStaffCostBaseFromCurriculum(
     );
   }
 }
-

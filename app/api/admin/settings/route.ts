@@ -90,6 +90,10 @@ export async function PATCH(req: Request): Promise<Response> {
       );
     }
 
+    // CACHE INVALIDATION: Clear admin settings cache after successful update
+    const { invalidateAdminSettingsCache } = await import('@/lib/cache/admin-settings-cache');
+    invalidateAdminSettingsCache();
+
     return NextResponse.json({
       success: true,
       data: result.data,

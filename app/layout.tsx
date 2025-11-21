@@ -5,6 +5,7 @@ import { AuthProvider } from './providers/AuthProvider';
 import { QueryProvider } from './providers/QueryProvider';
 import { SkipNavigation } from '@/components/layout/SkipNavigation';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { Toaster } from '@/components/ui/toaster';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
@@ -26,7 +27,9 @@ export default function RootLayout({
 }>): JSX.Element {
   return (
     <html lang="en" className="dark">
-      <body className={`${inter.variable} font-sans antialiased bg-background-primary text-text-primary`}>
+      <body
+        className={`${inter.variable} font-sans antialiased bg-background-primary text-text-primary`}
+      >
         <ErrorBoundary>
           <SkipNavigation />
           <QueryProvider>
@@ -36,9 +39,9 @@ export default function RootLayout({
               </main>
             </AuthProvider>
           </QueryProvider>
+          <Toaster />
         </ErrorBoundary>
       </body>
     </html>
   );
 }
-

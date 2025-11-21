@@ -14,8 +14,31 @@ interface VersionCardProps {
   version: VersionListItem;
 }
 
-function formatDate(date: Date | string): string {
+/**
+ * Format date for display with relative time
+ *
+ * @param date - Date to format (Date object, ISO string, or null/undefined)
+ * @returns Formatted date string or fallback message
+ *
+ * @example
+ * formatDate(new Date()) // "just now"
+ * formatDate("2024-01-01T00:00:00Z") // "5 days ago"
+ * formatDate(null) // "No date"
+ */
+function formatDate(date: Date | string | null | undefined): string {
+  // Handle null/undefined
+  if (date === null || date === undefined) {
+    return 'No date';
+  }
+
+  // Parse date
   const d = typeof date === 'string' ? new Date(date) : date;
+
+  // Validate date object
+  if (!(d instanceof Date) || isNaN(d.getTime())) {
+    return 'Invalid date';
+  }
+
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffMins = Math.floor(diffMs / 60000);
@@ -26,7 +49,13 @@ function formatDate(date: Date | string): string {
   if (diffMins < 60) return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
   if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
   if (diffDays < 7) return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
-  return d.toLocaleDateString();
+
+  // For older dates, return formatted date string
+  try {
+    return d.toLocaleDateString();
+  } catch (err) {
+    return 'Invalid date';
+  }
 }
 
 export function VersionCard({ version }: VersionCardProps) {
@@ -66,7 +95,7 @@ export function VersionCard({ version }: VersionCardProps) {
               </div>
               {version._count && (
                 <div>
-                  {version._count.curriculumPlans || 0} curriculum plan{(version._count.curriculumPlans || 0) !== 1 ? 's' : ''}
+                  {version._count.curriculum_plans || 0} curriculum plan{(version._count.curriculum_plans || 0) !== 1 ? 's' : ''}
                 </div>
               )}
             </div>

@@ -57,8 +57,12 @@ next-env.d.ts
 
 # testing
 .nyc_output
-playwright-report
-test-results
+playwright-report/
+playwright/.cache/
+test-results/
+/e2e-results/
+*.webm
+*.mp4
 
 # logs
 logs
@@ -67,3 +71,6 @@ logs
 # OS
 Thumbs.db
 
+
+# Sentry Config File
+.env.sentry-build-plugin

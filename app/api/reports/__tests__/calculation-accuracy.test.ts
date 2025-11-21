@@ -44,6 +44,9 @@ import { auth } from '@/lib/auth/config';
 import { getVersionById } from '@/services/version';
 import { getAdminSettings } from '@/services/admin/settings';
 import { calculateStaffCostBaseFromCurriculum } from '@/lib/calculations/financial/staff-costs';
+import { generateReport } from '@/services/report/generate';
+import { storeReport, getReportUrl } from '@/services/report/storage';
+import { logAudit } from '@/services/audit';
 import { prisma } from '@/lib/db/prisma';
 
 describe('Calculation Accuracy Tests', () => {
@@ -143,6 +146,28 @@ describe('Calculation Accuracy Tests', () => {
       success: true,
       data: mockAdminSettings,
     });
+
+    // Mock report generation
+    vi.mocked(generateReport).mockResolvedValue({
+      success: true,
+      data: {
+        file: Buffer.from('test-report-content'),
+        fileName: 'test-report.pdf',
+      },
+    } as any);
+
+    // Mock report storage
+    vi.mocked(storeReport).mockResolvedValue({
+      filePath: '/path/to/report.pdf',
+      fileSize: 1024,
+    } as any);
+
+    // Mock report URL generation
+    vi.mocked(getReportUrl).mockReturnValue('https://example.com/reports/report-123.pdf');
+
+    // Mock audit logging
+    vi.mocked(logAudit).mockResolvedValue(undefined);
+
     vi.mocked(prisma.reports.create).mockResolvedValue({
       id: 'report-123',
       versionId: mockVersionId,
@@ -223,21 +248,20 @@ describe('Calculation Accuracy Tests', () => {
       await POST(req, { params: Promise.resolve(params) });
 
       // Verify calculateFullProjection was called with custom admin settings
-      expect(vi.mocked(calculateFullProjection)).toHaveBeenCalledWith(
-        expect.objectContaining({
-          adminSettings: expect.objectContaining({
-            cpiRate: expect.objectContaining({
-              // Should be 0.035 (from custom settings), not 0.03 (hardcoded)
-            }),
-            discountRate: expect.objectContaining({
-              // Should be 0.09 (from custom settings), not 0.08 (hardcoded)
-            }),
-            taxRate: expect.objectContaining({
-              // Should be 0.25 (from custom settings), not 0.20 (hardcoded)
-            }),
-          }),
-        })
-      );
+      const projectionCall = vi.mocked(calculateFullProjection).mock.calls[0][0] as any;
+
+      // Verify admin settings are from database (not hardcoded)
+      expect(projectionCall.adminSettings).toBeDefined();
+
+      // Admin settings should be Decimal objects
+      expect(projectionCall.adminSettings.cpiRate).toBeInstanceOf(Decimal);
+      expect(projectionCall.adminSettings.discountRate).toBeInstanceOf(Decimal);
+      expect(projectionCall.adminSettings.zakatRate).toBeInstanceOf(Decimal);
+
+      // Verify values match custom settings (not hardcoded defaults)
+      expect(projectionCall.adminSettings.cpiRate.toString()).toBe('0.035'); // Custom: 3.5%, not hardcoded 3%
+      expect(projectionCall.adminSettings.discountRate.toString()).toBe('0.09'); // Custom: 9%, not hardcoded 8%
+      expect(projectionCall.adminSettings.zakatRate.toString()).toBe('0.025'); // Saudi Arabian Zakat rate: 2.5%
     });
   });
 
@@ -523,4 +547,3 @@ describe('Calculation Accuracy Tests', () => {
     });
   });
 });
-

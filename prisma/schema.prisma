@@ -8,12 +8,37 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+/// Admin Settings Model
+///
+/// IMPORTANT: This model stores settings as JSON with specific validation requirements:
+///
+/// FORMULA-001: teacherStudentRatio
+/// - MUST be stored as DECIMAL between 0 and 1 (e.g., 0.0714 for 7.14%)
+/// - Valid range: 0.0-1.0
+/// - Example: 0.0714 means 1 teacher per 14 students (1 / 14 = 0.0714)
+/// - INVALID: 7.14 (percentage format - must be converted to decimal)
+/// - See API validation in /api/admin/settings for enforcement
+///
+/// Transition Period Settings (2025-2027):
+/// - transitionCapacityCap: Maximum student enrollment during transition (physical constraint)
+/// - transitionRentAdjustmentPercent: Rent adjustment from 2024 baseline (e.g., 10.0 = +10%)
+/// - transitionStaffCostBase2024: Base year (2024) staff costs for growth calculations
+/// - transitionRentBase2024: Base year (2024) rent for growth calculations
 model admin_settings {
-  id        String   @id @default(uuid())
-  key       String   @unique
-  value     Json
-  updatedAt DateTime @updatedAt
-  updatedBy String?
+  id                              String   @id @default(uuid())
+  key                             String   @unique
+  /// JSON value - see model documentation for validation requirements per key
+  value                           Json
+  updatedAt                       DateTime @updatedAt
+  updatedBy                       String?
+
+  // Transition period global settings (2025-2027)
+  transitionCapacityCap           Int?     @default(1850) @map("transition_capacity_cap")
+  transitionRentAdjustmentPercent Decimal? @default(10.0) @db.Decimal(5, 2) @map("transition_rent_adjustment_percent")
+
+  // Base year values for transition calculations (fetched from historical_actuals year 2024)
+  transitionStaffCostBase2024     Decimal? @db.Decimal(15, 2) @map("transition_staff_cost_base_2024")
+  transitionRentBase2024          Decimal? @db.Decimal(15, 2) @map("transition_rent_base_2024")
 
   @@index([key])
 }
@@ -49,6 +74,9 @@ model capex_items {
   capex_rules capex_rules?  @relation(fields: [ruleId], references: [id])
 
   @@index([versionId, year])
+  @@index([year])
+  @@index([ruleId])
+  @@index([category])
 }
 
 model capex_rules {
@@ -87,6 +115,7 @@ model curriculum_plans {
 
   @@unique([versionId, curriculumType])
   @@index([versionId])
+  @@index([curriculumType])
 }
 
 model opex_sub_accounts {
@@ -207,6 +236,9 @@ model versions {
   @@index([createdBy])
   @@index([mode])
   @@index([status, createdAt])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@index([basedOnId])
 }
 
 model other_revenue_items {
@@ -220,6 +252,7 @@ model other_revenue_items {
 
   @@unique([versionId, year])
   @@index([versionId, year])
+  @@index([year])
 }
 
 model balance_sheet_settings {
@@ -309,6 +342,44 @@ model historical_actuals {
 
   @@unique([versionId, year])
   @@index([versionId])
+  @@index([year])
+}
+
+/// Transition Year Data Model (2025-2027)
+///
+/// Purpose: Store admin-adjustable parameters for transition period planning
+/// - Year-specific enrollment targets (subject to capacity cap in admin_settings)
+/// - Staff cost baselines (with CPI growth applied in calculations)
+/// - Period: TRANSITION years only (2025-2027)
+///
+/// Business Rules:
+/// - CRITICAL: IB curriculum is NOT active during transition (2025-2027) - only FR operates!
+/// - averageTuitionPerStudent represents FR curriculum tuition only
+/// - Total enrollment per year (no FR/IB split needed for transition)
+/// - Revenue calculation: targetEnrollment × averageTuitionPerStudent + otherRevenue
+/// - Staff costs and rent use growth percentages from 2024 base year
+model transition_year_data {
+  id               String   @id @default(uuid())
+  year             Int      @unique
+  targetEnrollment Int      @map("target_enrollment")
+  staffCostBase    Decimal  @db.Decimal(15, 2) @map("staff_cost_base")
+  notes            String?
+
+  // Revenue components
+  averageTuitionPerStudent Decimal? @db.Decimal(15, 2) @map("average_tuition_per_student")
+  otherRevenue            Decimal? @default(0) @db.Decimal(15, 2) @map("other_revenue")
+
+  // Operating expenses
+  opex                    Decimal? @db.Decimal(15, 2) @map("opex")
+
+  // Growth percentages (from 2024 base year)
+  staffCostGrowthPercent  Decimal? @db.Decimal(5, 2) @map("staff_cost_growth_percent")
+  rentGrowthPercent       Decimal? @db.Decimal(5, 2) @map("rent_growth_percent")
+
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([year])
 }
 
 enum CapexCategory {
@@ -334,6 +405,7 @@ enum EntityType {
   USER
   SETTING
   REPORT
+  TRANSITION_YEAR
 }
 
 enum RentModel {

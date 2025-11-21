@@ -112,10 +112,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
     async session({ session, token }) {
       // Add user data to session
-      if (session.user) {
-        session.user.id = token.id as string;
-        session.user.role = token.role as Role;
-        session.user.email = token.email as string;
+      if (session.user && token) {
+        if (token.id) {
+          session.user.id = token.id as string;
+        }
+        if (token.role) {
+          session.user.role = token.role as Role;
+        }
+        if (token.email) {
+          session.user.email = token.email as string;
+        }
       }
       return session;
     },
@@ -129,4 +135,5 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
   secret: process.env.NEXTAUTH_SECRET || 'fallback-secret-change-in-production',
+  trustHost: true, // Required for NextAuth v5
 });

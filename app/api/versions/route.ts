@@ -15,6 +15,11 @@ import { logAudit } from '@/services/audit';
 import { EntityType, type VersionStatus, type VersionMode } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 import { getCacheHeaders } from '@/lib/cache/revalidate';
+import {
+  getCachedVersionMetadata,
+  setCachedVersionMetadata,
+  type VersionMetadata,
+} from '@/lib/cache/version-cache';
 
 /**
  * GET /api/versions
@@ -40,7 +45,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const search = searchParams.get('search');
     const sortBy = searchParams.get('sortBy') || 'createdAt';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
-    const lightweight = searchParams.get('lightweight') === 'true'; // Fast mode: only id, name, status, mode
+    // OPTIMIZED: Lightweight mode is now the default for performance
+    // Use ?lightweight=false to get full data with includes
+    const lightweight = searchParams.get('lightweight') !== 'false'; // Fast mode: only id, name, status, mode (default: true)
 
     // Validate pagination
     if (page < 1) {
@@ -84,7 +91,48 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     let total: number;
     let versions: any[];
 
-    if (lightweight) {
+    const cacheEligible =
+      lightweight &&
+      !search &&
+      (!status || status === 'all') &&
+      (!mode || mode === 'all') &&
+      sortBy === 'createdAt' &&
+      sortOrder === 'desc';
+
+    if (lightweight && cacheEligible) {
+      const cacheKey = authResult.data.id;
+      let cachedVersions: VersionMetadata[] | undefined = getCachedVersionMetadata(cacheKey);
+
+      if (!cachedVersions) {
+        const queryStart = performance.now();
+        cachedVersions = await prisma.versions.findMany({
+          where: {
+            createdBy: cacheKey,
+          },
+          orderBy: {
+            id: 'desc',
+          },
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            mode: true,
+          },
+        });
+        const queryTime = performance.now() - queryStart;
+        if (queryTime > 100) {
+          console.warn(
+            `⚠️ Cached version list query slow: ${queryTime.toFixed(0)}ms (target: <100ms)`
+          );
+        }
+        setCachedVersionMetadata(cacheKey, cachedVersions);
+      }
+
+      total = cachedVersions.length;
+      const startIndex = (page - 1) * limit;
+      const endIndex = startIndex + limit;
+      versions = cachedVersions.slice(startIndex, endIndex);
+    } else if (lightweight) {
       // Ultra-fast path: simplified query, no complex sorting
       // Use id-based ordering (fastest) instead of createdAt
       const queryStart = performance.now();
@@ -393,6 +441,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
     });
 
+    // CACHE INVALIDATION: Clear version cache for user after creating new version
+    const { invalidateVersionCache } = await import('@/lib/cache/version-cache');
+    invalidateVersionCache(userId);
+
     return NextResponse.json(
       { success: true, data: createdVersion },
       { status: 201 }
@@ -420,4 +472,3 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 }
-

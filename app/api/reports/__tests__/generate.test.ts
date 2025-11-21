@@ -286,15 +286,20 @@ describe('POST /api/reports/generate/[versionId]', () => {
       await POST(req, { params: Promise.resolve(params) });
 
       expect(vi.mocked(getAdminSettings)).toHaveBeenCalled();
-      expect(vi.mocked(calculateFullProjection)).toHaveBeenCalledWith(
-        expect.objectContaining({
-          adminSettings: expect.objectContaining({
-            cpiRate: expect.any(Object),
-            discountRate: expect.any(Object),
-            taxRate: expect.any(Object),
-          }),
-        })
-      );
+
+      // Verify admin settings are passed to calculateFullProjection
+      const projectionCall = vi.mocked(calculateFullProjection).mock.calls[0][0] as any;
+      expect(projectionCall.adminSettings).toBeDefined();
+
+      // Admin settings should be Decimal objects
+      expect(projectionCall.adminSettings.cpiRate).toBeInstanceOf(Decimal);
+      expect(projectionCall.adminSettings.discountRate).toBeInstanceOf(Decimal);
+      expect(projectionCall.adminSettings.zakatRate).toBeInstanceOf(Decimal);
+
+      // Verify values
+      expect(projectionCall.adminSettings.cpiRate.toString()).toBe('0.03');
+      expect(projectionCall.adminSettings.discountRate.toString()).toBe('0.08');
+      expect(projectionCall.adminSettings.zakatRate.toString()).toBe('0.025');
     });
 
     it('should calculate staff cost base from curriculum plans', async () => {
@@ -744,10 +749,7 @@ describe('POST /api/reports/generate/[versionId]', () => {
             expect.objectContaining({ id: compareVersionId1 }),
             expect.objectContaining({ id: compareVersionId2 }),
           ]),
-          compareProjections: expect.arrayContaining([
-            expect.any(Object),
-            expect.any(Object),
-          ]),
+          compareProjections: expect.arrayContaining([expect.any(Object), expect.any(Object)]),
         })
       );
     });
@@ -895,4 +897,3 @@ describe('POST /api/reports/generate/[versionId]', () => {
     });
   });
 });
-

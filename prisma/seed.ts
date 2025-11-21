@@ -67,7 +67,18 @@ async function main(): Promise<void> {
   const settings = [
     { key: 'cpiRate', value: 0.03 },
     { key: 'discountRate', value: 0.08 },
-    { key: 'taxRate', value: 0.15 },
+    { key: 'taxRate', value: 0.15 }, // Keep for backward compatibility
+    // Phase 0.1: Financial Statement Settings (added 2025-11-21)
+    { key: 'zakatRate', value: 0.025 }, // 2.5% (Saudi Arabian standard)
+    { key: 'debt_interest_rate', value: 0.05 }, // 5% (default for Interest Expense)
+    { key: 'bank_deposit_interest_rate', value: 0.02 }, // 2% (default for Interest Income)
+    { key: 'minimum_cash_balance', value: 1000000 }, // 1,000,000 SAR (triggers automatic debt)
+    { key: 'working_capital_settings', value: {
+      accountsReceivable: { collectionDays: 0 },
+      accountsPayable: { paymentDays: 30 },
+      deferredIncome: { deferralFactor: 0.25 },
+      accruedExpenses: { accrualDays: 15 }
+    }},
     { key: 'currency', value: 'SAR' },
     { key: 'timezone', value: 'Asia/Riyadh' },
     { key: 'dateFormat', value: 'DD/MM/YYYY' },

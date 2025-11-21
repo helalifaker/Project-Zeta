@@ -1,16 +1,16 @@
 /**
  * Financial Statements Container Component
- * 
+ *
  * Displays P&L, Balance Sheet, and Cash Flow Statement in tabbed interface.
  * Uses production circular solver to generate 30-year projections.
- * 
+ *
  * Features:
  * - Tab navigation (P&L, Balance Sheet, Cash Flow)
  * - Real-time calculations via circular solver
  * - Performance monitoring (<100ms target)
  * - Convergence status display
  * - Export capabilities (Excel, PDF)
- * 
+ *
  * Reference: FINANCIAL_STATEMENTS_IMPLEMENTATION_PLAN.md (Phase 3)
  */
 
@@ -22,16 +22,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { 
-  Download, 
-  TrendingUp, 
-  DollarSign, 
+import {
+  Download,
+  TrendingUp,
+  DollarSign,
   Activity,
   AlertCircle,
   CheckCircle2,
-  Loader2
+  Loader2,
 } from 'lucide-react';
-import { CircularSolver, type SolverParams, type SolverResult } from '@/lib/calculations/financial/circular-solver';
+import {
+  CircularSolver,
+  type SolverParams,
+  type SolverResult,
+} from '@/lib/calculations/financial/circular-solver';
 import type { YearlyProjection } from '@/lib/calculations/financial/projection';
 import Decimal from 'decimal.js';
 
@@ -40,6 +44,7 @@ import { PnLStatement } from './PnLStatement';
 import { BalanceSheetStatement } from './BalanceSheetStatement';
 import { CashFlowStatement } from './CashFlowStatement';
 import { ConvergenceMonitor } from './ConvergenceMonitor';
+import { useRenderLogger } from '@/hooks/use-render-logger';
 
 // Configure Decimal.js
 Decimal.set({ precision: 20, rounding: Decimal.ROUND_HALF_UP });
@@ -64,6 +69,9 @@ export interface FinancialStatementsProps {
  * Financial Statements Container Component
  */
 export function FinancialStatements(props: FinancialStatementsProps): JSX.Element {
+  // DIAGNOSTIC: Track render count
+  useRenderLogger('FinancialStatements');
+
   const [activeTab, setActiveTab] = useState<'pnl' | 'balance-sheet' | 'cash-flow'>('pnl');
 
   // ✅ CHALLENGE 1 FIX: Use projection data passed from parent (no duplicate calculation)
@@ -183,4 +191,3 @@ export function FinancialStatements(props: FinancialStatementsProps): JSX.Elemen
     </div>
   );
 }
-

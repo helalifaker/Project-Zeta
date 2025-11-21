@@ -16,16 +16,16 @@ export function toWorkerNumber(
   if (value === null || value === undefined) {
     return null;
   }
-  
+
   if (typeof value === 'number') {
     return value;
   }
-  
+
   // Handle Decimal objects (both Decimal.js and Prisma Decimal)
   if (typeof (value as any).toNumber === 'function') {
     return (value as any).toNumber();
   }
-  
+
   // Fallback: convert to string then parse
   return parseFloat(String(value));
 }
@@ -49,7 +49,7 @@ export function serializeRentPlanParametersForWorker(
       console.error(`serializeRentPlanParametersForWorker: Found function at key "${key}" - skipping`);
       continue; // Skip this property
     }
-    
+
     // Check if value is a Decimal object
     if (value !== null && typeof value === 'object' && typeof (value as any).toNumber === 'function') {
       serialized[key] = (value as any).toNumber();

@@ -1,6 +1,6 @@
 /**
  * P&L (Profit & Loss) Statement Component
- * 
+ *
  * Displays 30-year Income Statement with:
  * - Revenue (by curriculum + other revenue)
  * - Operating costs (staff, rent, opex, depreciation)
@@ -8,9 +8,9 @@
  * - Interest income (calculated from cash)
  * - Zakat (2.5% on profit - Saudi Arabian law)
  * - Net Result
- * 
+ *
  * Formula: Net Result = EBITDA - Depreciation - Interest Expense + Interest Income - Zakat
- * 
+ *
  * Reference: FINANCIAL_STATEMENTS_IMPLEMENTATION_PLAN.md (lines 1769-1789)
  */
 
@@ -18,7 +18,7 @@
 
 import { useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { 
+import {
   Table,
   TableBody,
   TableCell,
@@ -27,11 +27,11 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import type { YearProjection } from '@/lib/calculations/financial/circular-solver';
+import type { YearlyProjection } from '@/lib/calculations/financial/projection';
 import Decimal from 'decimal.js';
 
 export interface PnLStatementProps {
-  projection: YearProjection[];
+  projection: YearlyProjection[];
   historicalData?: any[]; // Historical actuals for 2023-2024
 }
 
@@ -99,38 +99,53 @@ export function PnLStatement(props: PnLStatementProps): JSX.Element {
   // Create a map of historical data by year for quick lookup
   const historicalMap = useMemo(() => {
     const map = new Map<number, any>();
-    historicalData.forEach(h => {
+    historicalData.forEach((h) => {
       map.set(h.year, h);
     });
     return map;
   }, [historicalData]);
 
-  // Calculate totals
+  // Calculate totals with defensive null checks
   const totals = useMemo(() => {
-    const total = projection.reduce((acc, year) => ({
-      revenue: acc.revenue.plus(year.revenue),
-      staffCosts: acc.staffCosts.plus(year.staffCosts),
-      ebitda: acc.ebitda.plus(year.ebitda),
-      depreciation: acc.depreciation.plus(year.depreciation),
-      interestExpense: acc.interestExpense.plus(year.interestExpense),
-      interestIncome: acc.interestIncome.plus(year.interestIncome),
-      zakat: acc.zakat.plus(year.zakat),
-      netResult: acc.netResult.plus(year.netResult),
-    }), {
-      revenue: new Decimal(0),
-      staffCosts: new Decimal(0),
-      ebitda: new Decimal(0),
-      depreciation: new Decimal(0),
-      interestExpense: new Decimal(0),
-      interestIncome: new Decimal(0),
-      zakat: new Decimal(0),
-      netResult: new Decimal(0),
-    });
+    const total = projection.reduce(
+      (acc, year) => {
+        // Defensive checks: ensure all fields are defined before using them
+        const revenue = year.revenue ?? new Decimal(0);
+        const staffCosts = year.staffCosts ?? year.staffCost ?? new Decimal(0); // Try staffCosts first, fallback to staffCost
+        const ebitda = year.ebitda ?? new Decimal(0);
+        const depreciation = year.depreciation ?? new Decimal(0);
+        const interestExpense = year.interestExpense ?? new Decimal(0);
+        const interestIncome = year.interestIncome ?? new Decimal(0);
+        const zakat = year.zakat ?? new Decimal(0);
+        const netResult = year.netResult ?? new Decimal(0);
+
+        return {
+          revenue: acc.revenue.plus(revenue),
+          staffCosts: acc.staffCosts.plus(staffCosts),
+          ebitda: acc.ebitda.plus(ebitda),
+          depreciation: acc.depreciation.plus(depreciation),
+          interestExpense: acc.interestExpense.plus(interestExpense),
+          interestIncome: acc.interestIncome.plus(interestIncome),
+          zakat: acc.zakat.plus(zakat),
+          netResult: acc.netResult.plus(netResult),
+        };
+      },
+      {
+        revenue: new Decimal(0),
+        staffCosts: new Decimal(0),
+        ebitda: new Decimal(0),
+        depreciation: new Decimal(0),
+        interestExpense: new Decimal(0),
+        interestIncome: new Decimal(0),
+        zakat: new Decimal(0),
+        netResult: new Decimal(0),
+      }
+    );
 
     return {
       ...total,
-      ebitdaMargin: total.ebitda.div(total.revenue),
-      netMargin: total.netResult.div(total.revenue),
+      ebitdaMargin: total.revenue.isZero() ? new Decimal(0) : total.ebitda.div(total.revenue),
+      netMargin: total.revenue.isZero() ? new Decimal(0) : total.netResult.div(total.revenue),
     };
   }, [projection]);
 
@@ -147,7 +162,9 @@ export function PnLStatement(props: PnLStatementProps): JSX.Element {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[80px] sticky left-0 bg-background-secondary z-10">Year</TableHead>
+                <TableHead className="w-[80px] sticky left-0 bg-background-secondary z-10">
+                  Year
+                </TableHead>
                 <TableHead className="text-right">Revenue</TableHead>
                 <TableHead className="text-right">Staff Costs</TableHead>
                 <TableHead className="text-right">EBITDA</TableHead>
@@ -165,31 +182,50 @@ export function PnLStatement(props: PnLStatementProps): JSX.Element {
                 // Check if we have historical data for this year (2023 or 2024)
                 const historical = historicalMap.get(year.year);
 
-                // Use historical data if available, otherwise use projection
-                const revenue = historical ? toDecimal(historical.totalRevenues) : year.revenue;
-                const staffCosts = historical ? toDecimal(historical.salariesAndRelatedCosts) : year.staffCosts;
-                const depreciation = historical ? toDecimal(historical.depreciationAmortization) : year.depreciation;
-                const interestExpense = historical ? toDecimal(historical.interestExpenses) : year.interestExpense;
-                const interestIncome = historical ? toDecimal(historical.interestIncome) : year.interestIncome;
-                const netResult = historical ? toDecimal(historical.netResult) : year.netResult;
+                // Use historical data if available, otherwise use projection (with defensive null checks)
+                const revenue = historical
+                  ? toDecimal(historical.totalRevenues)
+                  : (year.revenue ?? new Decimal(0));
+                const staffCosts = historical
+                  ? toDecimal(historical.salariesAndRelatedCosts)
+                  : (year.staffCosts ?? year.staffCost ?? new Decimal(0)); // Try staffCosts first, fallback to staffCost
+                const depreciation = historical
+                  ? toDecimal(historical.depreciationAmortization)
+                  : (year.depreciation ?? new Decimal(0));
+                const interestExpense = historical
+                  ? toDecimal(historical.interestExpenses)
+                  : (year.interestExpense ?? new Decimal(0));
+                const interestIncome = historical
+                  ? toDecimal(historical.interestIncome)
+                  : (year.interestIncome ?? new Decimal(0));
+                const netResult = historical
+                  ? toDecimal(historical.netResult)
+                  : (year.netResult ?? new Decimal(0));
 
-                // Calculate EBITDA and zakat based on source
+                // Calculate EBITDA and zakat based on source (with defensive null checks)
                 const ebitda = historical
                   ? netResult.plus(depreciation).plus(interestExpense).minus(interestIncome)
-                  : year.ebitda;
-                const zakat = historical ? new Decimal(0) : year.zakat; // Zakat not calculated for historical years
+                  : (year.ebitda ?? new Decimal(0));
+                const zakat = historical ? new Decimal(0) : (year.zakat ?? new Decimal(0)); // Zakat not calculated for historical years
 
-                const ebitdaMargin = ebitda.div(revenue);
-                const netMargin = netResult.div(revenue);
+                const ebitdaMargin = revenue.isZero() ? new Decimal(0) : ebitda.div(revenue);
+                const netMargin = revenue.isZero() ? new Decimal(0) : netResult.div(revenue);
                 const isNegative = netResult.isNegative();
                 const isHistorical = historical !== undefined;
 
                 return (
-                  <TableRow key={year.year} className={isHistorical ? 'bg-blue-50/50 dark:bg-blue-950/20' : ''}>
-                    <TableCell className={`font-medium sticky left-0 z-10 ${isHistorical ? 'bg-blue-50/50 dark:bg-blue-950/20' : 'bg-background-secondary'}`}>
+                  <TableRow
+                    key={year.year}
+                    className={isHistorical ? 'bg-blue-50/50 dark:bg-blue-950/20' : ''}
+                  >
+                    <TableCell
+                      className={`font-medium sticky left-0 z-10 ${isHistorical ? 'bg-blue-50/50 dark:bg-blue-950/20' : 'bg-background-secondary'}`}
+                    >
                       {year.year}
                       {isHistorical && (
-                        <Badge variant="secondary" className="ml-2 text-xs">Actual</Badge>
+                        <Badge variant="secondary" className="ml-2 text-xs">
+                          Actual
+                        </Badge>
                       )}
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm">
@@ -218,12 +254,16 @@ export function PnLStatement(props: PnLStatementProps): JSX.Element {
                     <TableCell className="text-right font-mono text-sm text-accent-red">
                       {zakat.greaterThan(0) ? `(${formatCurrency(zakat)})` : '-'}
                     </TableCell>
-                    <TableCell className={`text-right font-mono text-sm font-bold ${isNegative ? 'text-accent-red' : 'text-accent-green'}`}>
+                    <TableCell
+                      className={`text-right font-mono text-sm font-bold ${isNegative ? 'text-accent-red' : 'text-accent-green'}`}
+                    >
                       {isNegative && '('}
                       {formatCurrency(netResult.abs())}
                       {isNegative && ')'}
                     </TableCell>
-                    <TableCell className={`text-right text-sm ${isNegative ? 'text-accent-red' : 'text-accent-green'}`}>
+                    <TableCell
+                      className={`text-right text-sm ${isNegative ? 'text-accent-red' : 'text-accent-green'}`}
+                    >
                       {formatPercent(netMargin)}
                     </TableCell>
                   </TableRow>
@@ -256,12 +296,16 @@ export function PnLStatement(props: PnLStatementProps): JSX.Element {
                 <TableCell className="text-right font-mono text-accent-red">
                   ({formatCurrency(totals.zakat)})
                 </TableCell>
-                <TableCell className={`text-right font-mono font-bold ${totals.netResult.isNegative() ? 'text-accent-red' : 'text-accent-green'}`}>
+                <TableCell
+                  className={`text-right font-mono font-bold ${totals.netResult.isNegative() ? 'text-accent-red' : 'text-accent-green'}`}
+                >
                   {totals.netResult.isNegative() && '('}
                   {formatCurrency(totals.netResult.abs())}
                   {totals.netResult.isNegative() && ')'}
                 </TableCell>
-                <TableCell className={`text-right ${totals.netResult.isNegative() ? 'text-accent-red' : 'text-accent-green'}`}>
+                <TableCell
+                  className={`text-right ${totals.netResult.isNegative() ? 'text-accent-red' : 'text-accent-green'}`}
+                >
                   {formatPercent(totals.netMargin)}
                 </TableCell>
               </TableRow>
@@ -272,7 +316,8 @@ export function PnLStatement(props: PnLStatementProps): JSX.Element {
         {/* Formula Explanation */}
         <div className="mt-4 p-4 bg-background-tertiary rounded-md">
           <p className="text-sm text-text-secondary">
-            <span className="font-semibold">Formula:</span> Net Result = EBITDA - Depreciation - Interest Expense + Interest Income - Zakat
+            <span className="font-semibold">Formula:</span> Net Result = EBITDA - Depreciation -
+            Interest Expense + Interest Income - Zakat
           </p>
           <div className="mt-2 flex items-center gap-2">
             <Badge variant="secondary" className="text-xs">
@@ -287,4 +332,3 @@ export function PnLStatement(props: PnLStatementProps): JSX.Element {
     </Card>
   );
 }
-
